@@ -43,6 +43,13 @@ class VoiceAssistantPlugin : Plugin() {
     private var tts: TextToSpeech? = null
     private var ttsReady = false
 
+    // one recognition "session": tracks whether we heard onReadyForSpeech yet and whether
+    // we've already burned our one auto-retry for a spurious early disconnect.
+    private var gotReady = false
+    private var retried = false
+    private var startedAt = 0L
+    private var lastLocale = "en-US"
+
     override fun load() {
         tts = TextToSpeech(context) { status ->
             ttsReady = status == TextToSpeech.SUCCESS
@@ -92,6 +99,26 @@ class VoiceAssistantPlugin : Plugin() {
 
     // ---- speech to text -------------------------------------------------------
 
+    private fun buildIntent(locale: String) = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE, locale)
+        putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+        putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)   // on-device where a model exists; harmless otherwise
+        putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+    }
+
+    // Recreate the recognizer from scratch each session. Reusing one instance across
+    // sessions is what triggers ERROR_SERVER_DISCONNECTED (11) on the *next* start on
+    // Samsung — the previous service binding is still tearing down.
+    private fun freshRecognizer(): SpeechRecognizer {
+        try { recognizer?.cancel() } catch (_: Exception) {}
+        try { recognizer?.destroy() } catch (_: Exception) {}
+        return SpeechRecognizer.createSpeechRecognizer(context).also {
+            it.setRecognitionListener(listener)
+            recognizer = it
+        }
+    }
+
     @PluginMethod
     fun startListening(call: PluginCall) {
         if (getPermissionState("microphone") != PermissionState.GRANTED) {
@@ -100,26 +127,27 @@ class VoiceAssistantPlugin : Plugin() {
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
             call.reject("no speech recognition service on this device"); return
         }
-        val locale = call.getString("locale") ?: Locale.getDefault().toLanguageTag()
+        lastLocale = call.getString("locale") ?: Locale.getDefault().toLanguageTag()
         activity.runOnUiThread {
+            gotReady = false
+            retried = false
+            startedAt = System.currentTimeMillis()
             try {
-                recognizer?.destroy()
-                recognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
-                    setRecognitionListener(listener)
-                }
-                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, locale)
-                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                    // On-device where a model is present; harmless where it is not.
-                    putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-                }
-                recognizer?.startListening(intent)
+                freshRecognizer().startListening(buildIntent(lastLocale))
                 call.resolve()
             } catch (e: Exception) {
                 call.reject("startListening failed: ${e.message}")
             }
+        }
+    }
+
+    // one-shot recovery for a spurious disconnect that lands before the mic is even live
+    private fun retryStart() {
+        retried = true
+        activity.runOnUiThread {
+            startedAt = System.currentTimeMillis()
+            gotReady = false
+            try { freshRecognizer().startListening(buildIntent(lastLocale)) } catch (_: Exception) {}
         }
     }
 
@@ -145,7 +173,7 @@ class VoiceAssistantPlugin : Plugin() {
     }
 
     private val listener = object : RecognitionListener {
-        override fun onReadyForSpeech(params: Bundle?) { notifyListeners("sttReady", JSObject()) }
+        override fun onReadyForSpeech(params: Bundle?) { gotReady = true; notifyListeners("sttReady", JSObject()) }
         override fun onBeginningOfSpeech() {}
         override fun onRmsChanged(rmsdB: Float) {}
         override fun onBufferReceived(buffer: ByteArray?) {}
@@ -159,9 +187,19 @@ class VoiceAssistantPlugin : Plugin() {
         override fun onResults(results: Bundle?) {
             notifyListeners("result", JSObject().put("text", firstOf(results)))
             notifyListeners("sttEnd", JSObject())
+            releaseSoon()
         }
 
         override fun onError(error: Int) {
+            // A CLIENT / BUSY / SERVER_DISCONNECTED error that fires before the mic is even
+            // live (no onReadyForSpeech, < 900ms in) is the Samsung "previous session still
+            // closing" bug — silently start over once instead of surfacing it.
+            val transient = error == SpeechRecognizer.ERROR_CLIENT ||
+                error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY ||
+                error == 11 /* ERROR_SERVER_DISCONNECTED */
+            if (transient && !gotReady && !retried && System.currentTimeMillis() - startedAt < 900) {
+                retryStart(); return
+            }
             val msg = when (error) {
                 SpeechRecognizer.ERROR_NO_MATCH -> "no match"
                 SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "no speech"
@@ -171,13 +209,24 @@ class VoiceAssistantPlugin : Plugin() {
                 SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "permission denied"
                 SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "recognizer busy"
                 SpeechRecognizer.ERROR_CLIENT -> "client error"
+                11 -> "recognizer disconnected"
                 else -> "error $error"
             }
             notifyListeners("sttError", JSObject().put("code", error).put("message", msg))
             notifyListeners("sttEnd", JSObject())
+            releaseSoon()
         }
 
         override fun onEvent(eventType: Int, params: Bundle?) {}
+    }
+
+    // Tear the recognizer down after a session ends so the next start() builds a clean one
+    // with no half-closed service binding to race.
+    private fun releaseSoon() {
+        activity?.runOnUiThread {
+            try { recognizer?.destroy() } catch (_: Exception) {}
+            recognizer = null
+        }
     }
 
     // ---- text to speech -------------------------------------------------------
