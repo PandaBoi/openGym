@@ -245,7 +245,7 @@ export const VOICE_ENABLED_KEY = 'voice.enabled'
 
 function VoiceAssistantCard({ toast }) {
   const [avail, setAvail] = useState(null)          // null checking | false | true
-  const [modelKey, setModelKey] = useState(() => localStorage.getItem(VOICE_MODEL_KEY) || 'qwen2.5-3b')
+  const [modelKey, setModelKey] = useState(() => localStorage.getItem(VOICE_MODEL_KEY) || 'qwen2.5-1.5b')
   const [st, setSt] = useState(null)               // { exists, bytes } for modelKey
   const [pct, setPct] = useState(null)             // download %
   const [busy, setBusy] = useState(false)
@@ -286,10 +286,12 @@ function VoiceAssistantCard({ toast }) {
     setBusy(true)
     try {
       const { voiceLlm } = await import('../lib/voice-llm.js')
+      console.log('[voice] enable: loading', modelKey)
       await voiceLlm.load(modelKey)
       localStorage.setItem(VOICE_ENABLED_KEY, '1')
       setLoaded(true); toast(t('Voice assistant on'))
-    } catch (e) { toast(t('Couldn’t load model: {0}', e.message || e)) }
+      console.log('[voice] enable: loaded')
+    } catch (e) { console.log('[voice] enable fail:', e && (e.message || e)); toast(t('Couldn’t load model: {0}', e.message || e)) }
     finally { setBusy(false) }
   }
   const disable = async () => {

@@ -102,13 +102,14 @@ Java_ch_duartesantos_opengym_voice_LlamaBridge_nativeLoad(JNIEnv *env, jobject, 
     cp.n_ubatch        = 1024;
     cp.n_threads       = n_threads > 0 ? n_threads : 4;
     cp.n_threads_batch = cp.n_threads;
-    cp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
+    cp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;   // CPU FA can hurt at short ctx; let it decide
 
     g_ctx = llama_init_from_model(g_model, cp);
     if (!g_ctx) { LOGE("context init failed"); llama_model_free(g_model); g_model = nullptr; return JNI_FALSE; }
 
     g_n_ctx = (int) llama_n_ctx(g_ctx);
     LOGI("model loaded, n_ctx=%d, threads=%d", g_n_ctx, cp.n_threads);
+    LOGI("cpu: %s", llama_print_system_info());
     return JNI_TRUE;
 }
 
@@ -139,8 +140,11 @@ Java_ch_duartesantos_opengym_voice_LlamaBridge_nativeGenerate(JNIEnv *env, jobje
     while (common < maxCommon && g_cache[common] == toks[common]) ++common;
     llama_memory_seq_rm(llama_get_memory(g_ctx), 0, common, -1);
 
+    const int64_t t_start = llama_time_us();
     if (!decode_from(g_ctx, toks, common, 1024)) { g_cache.clear(); return env->NewStringUTF(""); }
     g_cache = toks;
+    const int64_t t_prompt = llama_time_us();
+    const int n_prompt = (int) toks.size() - common;
 
     // sampler chain
     llama_sampler *smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
@@ -177,6 +181,12 @@ Java_ch_duartesantos_opengym_voice_LlamaBridge_nativeGenerate(JNIEnv *env, jobje
         if (llama_decode(g_ctx, gen) != 0) break;
     }
     // generated tokens' KV lives past g_cache.size(); the next call's seq_rm(common) clears it.
+    const int64_t t_end = llama_time_us();
+    const int n_gen = n_past - (int) toks.size();
+    const double pms = (t_prompt - t_start) / 1000.0, gms = (t_end - t_prompt) / 1000.0;
+    LOGI("timing: prompt %d tok (of %d, %d cached) in %.0f ms = %.1f tok/s | gen %d tok in %.0f ms = %.1f tok/s",
+         n_prompt, (int) toks.size(), common, pms, n_prompt * 1000.0 / (pms + 1e-6),
+         n_gen, gms, n_gen * 1000.0 / (gms + 1e-6));
 
     llama_batch_free(gen);
     llama_sampler_free(smpl);

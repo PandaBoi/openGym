@@ -111,13 +111,17 @@ export default function VoiceButton() {
     <>
       <style>{`
         @keyframes vb-pulse { 0%{box-shadow:0 0 0 0 var(--acc)} 70%{box-shadow:0 0 0 14px transparent} 100%{box-shadow:0 0 0 0 transparent} }
+        @keyframes vb-spin { to { transform: rotate(360deg) } }
         .vb-fab{position:fixed;right:16px;bottom:calc(env(safe-area-inset-bottom,0px) + 84px);z-index:60;
           width:56px;height:56px;border-radius:50%;border:none;display:grid;place-items:center;
           background:var(--acc);color:#000;font-size:24px;cursor:pointer;
           box-shadow:0 6px 20px rgba(0,0,0,.35);transition:transform .12s ease}
         .vb-fab:active{transform:scale(.94)}
         .vb-fab.on{animation:vb-pulse 1.4s infinite;background:#ff4d4f;color:#fff}
-        .vb-fab.busy{opacity:.7}
+        .vb-fab.busy{background:var(--card,#1c1c1e);color:var(--acc)}
+        .vb-fab.busy::before{content:'';position:absolute;inset:-3px;border-radius:50%;
+          border:3px solid transparent;border-top-color:var(--acc);border-right-color:var(--acc);
+          animation:vb-spin .8s linear infinite}
         .vb-bubble{position:fixed;left:16px;right:84px;bottom:calc(env(safe-area-inset-bottom,0px) + 92px);z-index:60;
           background:var(--card, #1c1c1e);color:var(--label, #fff);border:1px solid var(--sep, #333);
           border-radius:14px;padding:10px 12px;font-size:14px;line-height:1.35;

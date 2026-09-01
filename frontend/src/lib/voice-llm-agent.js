@@ -33,20 +33,27 @@ export function buildSystemPrompt(tools = TOOLS) {
   const lines = tools.map(t => `- ${t.name}: ${SHORT[t.name] || t.description}`)
   return [
     'You are a hands-free voice assistant in a gym app. Reply with exactly ONE JSON object:',
-    '{"tool":"NAME","args":{...}} to call a tool, or {"say":"one short sentence"} to answer aloud.',
-    'Call a tool to get real numbers, then say the answer. Never guess numbers.',
+    '{"tool":"NAME","args":{...}} to call a tool, or {"say":"..."} to answer aloud.',
+    'Call a tool to get real numbers, then answer. Never guess numbers.',
+    'The spoken answer must be ONE short sentence, max ~12 words. No lists, no markdown.',
     '',
     'TOOLS:',
     ...lines,
   ].join('\n')
 }
 
-// A compact snapshot so trivial questions need no tool call.
+// A compact, unambiguous snapshot so trivial questions need no tool call.
 export function stateSnapshot() {
   const s = runTool('get_workout_state')
-  if (!s.active) return `No workout running. Today's plan: ${s.todayPlan}.`
-  return `Workout: ${s.routine}. Exercise ${s.exerciseIndex}/${s.exerciseCount} (${s.currentExercise}, target ${s.currentTarget}). ` +
-    `${s.setsDone}/${s.setsTotal} sets done, ${s.elapsedMin} min elapsed.`
+  if (!s.active) return `No workout in progress right now. Today's plan is ${s.todayPlan}.`
+  return [
+    `Current workout: "${s.routine}".`,
+    `It has ${s.exerciseCount} exercises; you are on exercise number ${s.exerciseIndex} (${s.currentExercise}).`,
+    `Sets: ${s.setsDone} done out of ${s.setsTotal} total.`,
+    `Time elapsed: ${s.elapsedMin} minutes.`,
+    `Target for the current exercise: ${s.currentTarget}.`,
+    s.exercisesDone.length ? `Exercises finished: ${s.exercisesDone.join(', ')}.` : `No exercises finished yet.`,
+  ].join(' ')
 }
 
 // Pull the first balanced {...} out of possibly-fenced, possibly-chatty model output.

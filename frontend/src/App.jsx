@@ -54,9 +54,17 @@ function Shell() {
   // Native build: if the on-device voice model was enabled, load it in the background at boot
   // so the mic button is ready without a 20 s stall mid-workout.
   useEffect(() => {
-    if (!import.meta.env.VITE_MOBILE || localStorage.getItem('voice.enabled') !== '1') return
+    if (!import.meta.env.VITE_MOBILE || localStorage.getItem('voice.enabled') !== '1') {
+      console.log('[voice] autoload skip; enabled=', localStorage.getItem('voice.enabled'))
+      return
+    }
+    const key = localStorage.getItem('voice.model') || 'qwen2.5-1.5b'
     import('./lib/voice-llm.js').then(({ voiceLlm }) =>
-      voiceLlm.isLoaded().then(l => { if (!l) voiceLlm.load(localStorage.getItem('voice.model') || 'qwen2.5-3b').catch(() => {}) })
+      voiceLlm.isLoaded().then(l => {
+        if (l) { console.log('[voice] autoload: already loaded'); return }
+        console.log('[voice] autoload: loading', key)
+        voiceLlm.load(key).then(() => console.log('[voice] autoload: loaded')).catch(e => console.log('[voice] autoload fail:', e && (e.message || e)))
+      })
     )
   }, [])
 
