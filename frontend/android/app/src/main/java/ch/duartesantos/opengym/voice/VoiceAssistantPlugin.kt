@@ -285,9 +285,11 @@ class VoiceAssistantPlugin : Plugin() {
     fun loadModel(call: PluginCall) {
         val path = call.getString("path")
         if (path.isNullOrBlank()) { call.reject("path required"); return }
-        val nCtx = call.getInt("nCtx") ?: 4096
+        val nCtx = call.getInt("nCtx") ?: 2048
+        // Big cores only. On an 8-core Snapdragon (1 prime + 3–4 perf + 3–4 efficiency),
+        // adding the little cores drags the whole batch to their speed — 4 is the sweet spot.
         val cores = Runtime.getRuntime().availableProcessors()
-        val nThreads = call.getInt("nThreads") ?: (cores - 2).coerceIn(2, 6)
+        val nThreads = call.getInt("nThreads") ?: (if (cores >= 8) 4 else (cores - 1).coerceAtLeast(2))
         llmExec.execute {
             if (!LlamaBridge.ensureLib()) { call.reject("native lib unavailable"); return@execute }
             if (!File(path).exists()) { call.reject("model file not found: $path"); return@execute }
@@ -307,9 +309,12 @@ class VoiceAssistantPlugin : Plugin() {
         llmExec.execute {
             if (!LlamaBridge.nativeIsLoaded()) { call.reject("no model loaded"); return@execute }
             val t0 = System.currentTimeMillis()
+            android.util.Log.i("voicellm", "generate: prompt=${prompt.length} chars, grammar=${grammar.length}, maxTok=$maxTokens")
             val text = try { LlamaBridge.nativeGenerate(prompt, grammar, maxTokens, temp) }
-                catch (t: Throwable) { call.reject("generate failed: ${t.message}"); return@execute }
-            call.resolve(JSObject().put("text", text).put("ms", System.currentTimeMillis() - t0))
+                catch (t: Throwable) { android.util.Log.e("voicellm", "generate threw", t); call.reject("generate failed: ${t.message}"); return@execute }
+            val ms = System.currentTimeMillis() - t0
+            android.util.Log.i("voicellm", "generate done in ${ms}ms -> ${text.take(200)}")
+            call.resolve(JSObject().put("text", text).put("ms", ms))
         }
     }
 

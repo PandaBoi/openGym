@@ -47,17 +47,23 @@ export default function VoiceButton() {
       if (MOBILE) {
         const { voiceLlm } = await import('../lib/voice-llm.js')
         useLlm = await voiceLlm.isLoaded()
+        console.log('[voice] model loaded?', useLlm)
         if (useLlm) {
           const { runAgent } = await import('../lib/voice-llm-agent.js')
           flash(raw)   // show the transcript while the model thinks
-          const r = await runAgent(raw, voiceLlm.makeGenerate())
+          console.log('[voice] runAgent start:', JSON.stringify(raw))
+          const r = await Promise.race([
+            runAgent(raw, voiceLlm.makeGenerate(), { onStep: s => console.log('[voice] step', JSON.stringify(s)) }),
+            new Promise((_, rej) => setTimeout(() => rej(new Error('llm timeout')), 180000)),
+          ])
+          console.log('[voice] runAgent done:', JSON.stringify(r).slice(0, 300))
           reply = r.speak
         }
       }
-      if (!useLlm) reply = runIntent(parseIntent(raw))
+      if (!useLlm || !reply) reply = runIntent(parseIntent(raw))
     } catch (e) {
-      console.error('[voice] handle', e)
-      reply = 'Something went wrong doing that.'
+      console.error('[voice] handle', e && (e.message || e))
+      reply = runIntent(parseIntent(raw))   // fall back to the grammar
     }
     flash(reply, true)
     setState('idle')

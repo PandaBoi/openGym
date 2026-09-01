@@ -10,23 +10,25 @@ import { registerPlugin } from '@capacitor/core'
 
 const p = registerPlugin('VoiceAssistant')
 
+// Q4_0 (not Q4_K_M): llama.cpp repacks it at load into the i8mm/dotprod GEMM kernels,
+// which run ~1.5–2x faster than Q4_K on an ARM CPU. n_ctx 2048 is plenty for the agent.
 export const MODELS = {
   'qwen2.5-1.5b': {
-    label: 'Fast (Qwen2.5 1.5B, ~1.0 GB)',
-    file: 'qwen2.5-1.5b-instruct-q4_k_m.gguf',
-    url: 'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf?download=true',
-    minBytes: 900_000_000,
-    nCtx: 4096,
+    label: 'Fast (Qwen2.5 1.5B, ~0.9 GB)',
+    file: 'qwen2.5-1.5b-instruct-q4_0.gguf',
+    url: 'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_0.gguf?download=true',
+    minBytes: 800_000_000,
+    nCtx: 2048,
   },
   'qwen2.5-3b': {
-    label: 'Smart (Qwen2.5 3B, ~2.0 GB)',
-    file: 'qwen2.5-3b-instruct-q4_k_m.gguf',
-    url: 'https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf?download=true',
-    minBytes: 1_800_000_000,
-    nCtx: 4096,
+    label: 'Smart (Qwen2.5 3B, ~1.8 GB)',
+    file: 'qwen2.5-3b-instruct-q4_0.gguf',
+    url: 'https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_0.gguf?download=true',
+    minBytes: 1_600_000_000,
+    nCtx: 2048,
   },
 }
-export const DEFAULT_MODEL = 'qwen2.5-3b'
+export const DEFAULT_MODEL = 'qwen2.5-1.5b'
 
 // GBNF: the agent's turn is exactly one JSON object of the shape we parse.
 const GRAMMAR = String.raw`
@@ -86,7 +88,7 @@ export const voiceLlm = {
   // the function voice-llm-agent.runAgent() calls each turn
   makeGenerate() {
     return async ({ system, messages }) => {
-      const r = await p.generate({ prompt: chatml(system, messages), grammar: GRAMMAR, maxTokens: 200, temp: 0 })
+      const r = await p.generate({ prompt: chatml(system, messages), grammar: GRAMMAR, maxTokens: 128, temp: 0 })
       return r?.text || ''
     }
   },

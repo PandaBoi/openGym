@@ -8,28 +8,36 @@
 
 import { TOOLS, runTool } from './voice-tools.js'
 
-const MAX_STEPS = 5
+const MAX_STEPS = 3
+
+// Terse — the system prompt is re-processed on every agent turn, so every token costs.
+const SHORT = {
+  get_workout_state: 'current exercise, sets done/total, minutes elapsed',
+  get_session_summary: "today's exercises, sets, volume, duration",
+  get_exercise_history: 'past sets, 1RM, trend for one lift (exercise, weeks?)',
+  get_stats: 'totals over week|month|year|all (range?)',
+  get_plan: 'weekly routine schedule',
+  get_bodyweight: 'latest body weight + 30-day change',
+  log_set: 'log current set (reps?, weight?, seconds?)',
+  set_weight: 'set weight on current set (weight)',
+  set_reps: 'set reps on current set (reps)',
+  add_set: 'add a set', remove_set: 'remove last set',
+  next_exercise: 'go to next exercise', prev_exercise: 'go to previous exercise',
+  start_rest: 'start rest timer (seconds?)', stop_rest: 'skip rest',
+  swap_exercise: 'replace current exercise (to)',
+  set_bodyweight: "log today's body weight (weight)",
+  finish_workout: 'end and save the workout',
+}
 
 export function buildSystemPrompt(tools = TOOLS) {
-  const lines = tools.map(t => {
-    const p = t.parameters?.properties || {}
-    const args = Object.keys(p).length
-      ? Object.entries(p).map(([k, v]) => `${k}${(t.parameters.required || []).includes(k) ? '' : '?'}:${v.type}`).join(', ')
-      : ''
-    return `- ${t.name}(${args}) — ${t.description}`
-  })
+  const lines = tools.map(t => `- ${t.name}: ${SHORT[t.name] || t.description}`)
   return [
-    'You are the voice assistant inside a gym-tracking app. The user is mid-workout and talking hands-free.',
-    'You can call tools to read their training data and to control the current workout.',
+    'You are a hands-free voice assistant in a gym app. Reply with exactly ONE JSON object:',
+    '{"tool":"NAME","args":{...}} to call a tool, or {"say":"one short sentence"} to answer aloud.',
+    'Call a tool to get real numbers, then say the answer. Never guess numbers.',
     '',
-    'Tools:',
+    'TOOLS:',
     ...lines,
-    '',
-    'Every reply is exactly ONE JSON object, nothing else:',
-    '  {"tool": "<name>", "args": { ... }}   to call a tool',
-    '  {"say": "<short spoken sentence>"}     to answer the user',
-    'Call tools until you can answer, then say something. Keep spoken replies to one or two',
-    'short sentences — they are read aloud. Never invent numbers; get them from a tool.',
   ].join('\n')
 }
 
