@@ -49,25 +49,37 @@ export default function VoiceButton() {
   }
 
   const start = async () => {
+    console.log('[voice] tap; state=', state)
     if (state === 'listening') { ctrlRef.current?.stop?.(); return }
-    voice.stopSpeaking()
-    const granted = await voice.ensurePermission()
-    if (!granted) { flash('Microphone permission is off — enable it in Settings.'); return }
-    setLine(''); setState('listening')
-    ctrlRef.current = await voice.listen({
-      onPartial: t => setLine(t),
-      onResult: t => {
-        ctrlRef.current = null
-        if (!t) { setState('idle'); flash("Didn't catch that. " + HINT); return }
-        handle(t)
-      },
-      onError: e => {
-        ctrlRef.current = null
-        setState('idle')
-        const m = e?.message || ''
-        flash(/no match|no speech/i.test(m) ? "Didn't catch that. " + HINT : 'Mic error: ' + m)
-      },
-    })
+    try {
+      voice.stopSpeaking()
+      flash('…')
+      const granted = await voice.ensurePermission()
+      console.log('[voice] permission granted=', granted)
+      if (!granted) { flash('Microphone permission is off — enable it in Settings, then tap again.'); return }
+      setLine(''); setState('listening')
+      ctrlRef.current = await voice.listen({
+        onPartial: t => setLine(t),
+        onResult: t => {
+          console.log('[voice] result=', JSON.stringify(t))
+          ctrlRef.current = null
+          if (!t) { setState('idle'); flash("Didn't catch that. " + HINT); return }
+          handle(t)
+        },
+        onError: e => {
+          console.log('[voice] sttError=', JSON.stringify(e))
+          ctrlRef.current = null
+          setState('idle')
+          const m = e?.message || ''
+          flash(/no match|no speech/i.test(m) ? "Didn't catch that. " + HINT : 'Mic error: ' + m)
+        },
+      })
+      console.log('[voice] listen() started')
+    } catch (e) {
+      console.error('[voice] start() threw', e)
+      setState('idle')
+      flash('Voice error: ' + (e?.message || e))
+    }
   }
 
   if (!active || supported === false) return null

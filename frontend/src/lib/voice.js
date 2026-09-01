@@ -8,36 +8,33 @@
 //
 // Nothing here talks to a server.
 
+import { registerPlugin } from '@capacitor/core'
 import { MOBILE } from './mobile.js'
 
-let _plugin = null
-async function plugin() {
-  if (_plugin) return _plugin
-  const { registerPlugin } = await import('@capacitor/core')
-  _plugin = registerPlugin('VoiceAssistant')
-  return _plugin
-}
+// registerPlugin() returns a Proxy — it MUST be created synchronously and never
+// returned from / awaited as a promise, or the runtime's thenable check trips the
+// proxy's `then` trap ("VoiceAssistant.then() is not implemented on android").
+const p = registerPlugin('VoiceAssistant')
 
 /* ------------------------------------------------------------------ native ---- */
 
 function nativeVoice() {
   return {
     async available() {
-      try { return await (await plugin()).available() } catch { return { stt: false, tts: false } }
+      try { return await p.available() } catch { return { stt: false, tts: false } }
     },
     async ensurePermission() {
-      try { return (await (await plugin()).ensurePermission()).granted } catch { return false }
+      try { return (await p.ensurePermission()).granted } catch { return false }
     },
     async speak(text, { rate = 1 } = {}) {
-      try { await (await plugin()).speak({ text, rate }) } catch { /* ignore */ }
+      try { await p.speak({ text, rate }) } catch { /* ignore */ }
     },
     async stopSpeaking() {
-      try { await (await plugin()).stopSpeaking() } catch { /* ignore */ }
+      try { await p.stopSpeaking() } catch { /* ignore */ }
     },
     // handlers: { onPartial(text), onResult(text), onError({code,message}) }
     // returns { stop() } — call it on button-release to end capture.
     async listen(handlers = {}) {
-      const p = await plugin()
       const subs = []
       subs.push(await p.addListener('partial', e => handlers.onPartial?.(e.text || '')))
       subs.push(await p.addListener('result', e => { cleanup(); handlers.onResult?.((e.text || '').trim()) }))

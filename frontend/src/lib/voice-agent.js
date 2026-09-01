@@ -184,6 +184,7 @@ function finish() {
 export function runIntent({ intent, args = {} }) {
   switch (intent) {
     case 'log_set': return logSet(args)
+    case 'mark_done': return logSet({})
     case 'set_weight': return setValue('w', args)
     case 'set_reps': return setValue('r', args)
     case 'add_set': return addSet()
