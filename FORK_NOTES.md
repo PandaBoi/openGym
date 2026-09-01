@@ -100,7 +100,9 @@ works in a normal browser dev build using the Web Speech API.
 See `~/.claude/plans/fancy-spinning-pond.md` for the full plan.
 
 - **M1** done — personal signed APK.
-- **M2** done — combined FitNotes+plan backups generated (not in the repo; regenerate with
-  the scratchpad script). His and Bindu's both built.
+- **M2** done — combined FitNotes+plan backup generator: `frontend/scripts/gen-plan-backup.mjs`
+  (run via `node --import ./scripts/_vite-glob-shim.mjs scripts/gen-plan-backup.mjs --csv <export.csv>
+  --out <file.json> --body male|female`). Personal workspace + built JSONs live in
+  `~/Codes/openGym-personal/` (outside git). His and Bindu's both built.
 - **M3** done (this branch) — voice bring-up with on-device SpeechRecognizer + TTS.
 - **M3b / M4** — whisper.cpp, then the local LLM agent loop.
