@@ -4,7 +4,7 @@ import { useStore } from '../store/useStore.js'
 import { exOr } from '../lib/exercises.js'
 import { uid } from '../lib/format.js'
 import { t } from '../lib/i18n.js'
-import { supersetUnits, cleanupSg, cleanupCg, circuitOf, exLine } from '../lib/history.js'
+import { supersetUnits, cleanupSg, cleanupCg, circuitOf, exLine, defaultConfig } from '../lib/history.js'
 import { Thumb } from '../components/Media.jsx'
 import { glyphPicker, exercisePicker, exConfigSheet, confirmSheet } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
@@ -52,6 +52,14 @@ export default function RoutineEdit() {
     members.forEach(m => { rr.ex[m].sets = rounds })
   })
   const setCircuitLabel = (sg, v) => editR(rr => { if (rr.cg?.[sg]) rr.cg[sg].label = v.slice(0, 24) })
+  // Replace the exercise at index i in place — same slot, same superset link, same set
+  // count and progression rule — then open its config so the new movement's targets can be
+  // dialled in. Beats delete-then-add-then-drag.
+  const swapAt = i => exercisePicker(newEx => {
+    const old = r.ex[i]
+    const seed = { ...defaultConfig(newEx.id), sets: old.sets, ...(old.prog ? { prog: old.prog } : {}), ...(old.inc ? { inc: old.inc } : {}) }
+    exConfigSheet(newEx, seed, cfg => edit(x => { x[i] = { id: newEx.id, sg: x[i].sg, ...cfg } }), null, r)
+  })
 
   const units = supersetUnits(r.ex)
   const unitFirst = new Set(units.filter(u => u.length > 1).map(u => u[0]))
@@ -100,7 +108,7 @@ export default function RoutineEdit() {
           </div>}
         </div>}
         <div className={'item' + (inSS.has(i) ? ' in-ss' : '')} onClick={() => {
-          exConfigSheet(ex, e, cfg => edit(x => { x[i] = { id: x[i].id, sg: x[i].sg, ...cfg } }), () => edit(x => x.splice(i, 1)), r)
+          exConfigSheet(ex, e, cfg => edit(x => { x[i] = { id: x[i].id, sg: x[i].sg, ...cfg } }), () => edit(x => x.splice(i, 1)), r, () => swapAt(i))
         }}>
           <Thumb ex={ex} />
           <div className="grow"><div className="tt capitalize">{ex.n}</div><div className="ss">{exLine(e, S.unit)}</div></div>

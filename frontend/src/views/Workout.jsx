@@ -54,7 +54,7 @@ function Elapsed({ start }) {
 }
 
 /* ---------- one exercise block (reps: weight×reps · time: a held duration · cardio: duration+speed) ---------- */
-function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemoveSet, onStartTimed, hideSetButtons }) {
+function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemoveSet, onStartTimed, onSwap, hideSetButtons }) {
   const S = useStore(s => s.S)
   const working = useUI(s => s.work)
   const entry = S.active.entries[entryIdx]
@@ -112,7 +112,10 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
     <Media ex={ex} key={entry.id} compact={compact} minimizable />
     <div className="row between" style={{ marginBottom: 6 }}>
       <div style={{ fontSize: compact ? 17 : 20, fontWeight: 600, letterSpacing: '-.02em', textTransform: 'capitalize', lineHeight: 1.2 }}>{ex.n}</div>
-      <button className="iconbtn" aria-label={t('Details')} onClick={() => exerciseDetailSheet(ex)}><Icon name="info" /></button>
+      <div style={{ display: 'flex', gap: 2, flex: 'none' }}>
+        {onSwap && <button className="iconbtn" aria-label={t('Swap exercise')} onClick={onSwap}><Icon name="shuffle" /></button>}
+        <button className="iconbtn" aria-label={t('Details')} onClick={() => exerciseDetailSheet(ex)}><Icon name="info" /></button>
+      </div>
     </div>
     <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
       {cardio && <span className="tag acc"><Icon name="figureRun" />{t('Cardio')}</span>}
@@ -205,6 +208,19 @@ function ActiveWorkout() {
     if (s.active.cg?.[sg]) s.active.cg[sg].rounds = Math.max(1, s.active.cg[sg].rounds + dir)
   }, true)
 
+  // Replace an exercise mid-session — picked the wrong machine, it's taken, form's off.
+  // Keeps the slot and its superset link; rebuilds the prescription and rows for the new
+  // movement, exactly as the voice "swap" does.
+  const swapEntry = idx => exercisePicker(newEx => update(s => {
+    const e = s.active.entries[idx]
+    e.id = newEx.id
+    const full = { ...(e.target || {}), id: newEx.id }
+    const routine = s.routines.find(r => r.id === s.active.routineId)
+    e.plan = nextPrescription(s, full, routine)
+    e.sets = applyPrescription(buildSets(s, full), e.plan)
+    delete e.asked
+  }, true))
+
   // A timed set is held, not typed. The work timer records what was actually held — an early
   // finish logs 0:38 of a 0:45 target rather than crediting the full prescription — and then
   // checks the set off through the normal path, so rest, supersets and the finish prompt all
@@ -292,7 +308,7 @@ function ActiveWorkout() {
           {unit.map((idx, k) => <div key={idx} className="ss-ex">
             {k > 0 && <div className="ss-amp">+</div>}
             <ExerciseBlock entryIdx={idx} compact hideSetButtons={!!circ}
-              onToggle={i => toggle(idx, i)} onField={(i, f, v) => setField(idx, i, f, v)} onAddSet={() => addSet(idx)} onRemoveSet={() => removeSet(idx)} onStartTimed={i => startTimed(idx, i)} />
+              onToggle={i => toggle(idx, i)} onField={(i, f, v) => setField(idx, i, f, v)} onAddSet={() => addSet(idx)} onRemoveSet={() => removeSet(idx)} onStartTimed={i => startTimed(idx, i)} onSwap={() => swapEntry(idx)} />
           </div>)}
           {circ && <div className="row" style={{ marginTop: 4 }}>
             <Button size="sm" icon="minus" disabled={circ.rounds <= 1} onClick={() => bumpRound(-1)}>{t('Remove round')}</Button>
@@ -300,7 +316,7 @@ function ActiveWorkout() {
           </div>}
         </div>
       ) : (
-        <ExerciseBlock entryIdx={cur} onToggle={i => toggle(cur, i)} onField={(i, f, v) => setField(cur, i, f, v)} onAddSet={() => addSet(cur)} onRemoveSet={() => removeSet(cur)} onStartTimed={i => startTimed(cur, i)} />
+        <ExerciseBlock entryIdx={cur} onToggle={i => toggle(cur, i)} onField={(i, f, v) => setField(cur, i, f, v)} onAddSet={() => addSet(cur)} onRemoveSet={() => removeSet(cur)} onStartTimed={i => startTimed(cur, i)} onSwap={() => swapEntry(cur)} />
       )}
     </> : <div className="empty"><div className="ico"><Icon name="shuffle" /></div>{t('Freestyle workout — add your first exercise.')}</div>}
 
