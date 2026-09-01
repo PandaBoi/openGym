@@ -885,15 +885,47 @@ h4.sec{
   font-size:12px;font-weight:600;color:var(--acc);margin-bottom:12px;
   text-align:center;display:flex;align-items:center;justify-content:center;gap:5px;
 }
-.ss-ex{position:relative;transition:opacity var(--fast)}
-/* the exercise you're on in the round is lit; the others recede so the "do this next"
-   is unambiguous without scrolling to hunt for it */
-.ss-ex.idle{opacity:.55}
-.ss-ex.active::before{
-  content:'';position:absolute;left:-14px;top:2px;bottom:2px;width:3px;
-  border-radius:2px;background:var(--acc);
-}
+.ss-ex{position:relative}
 .ss-amp{text-align:center;font-size:15px;font-weight:600;color:var(--acc);margin:14px 0 8px}
+/* superset/circuit pager: pills to jump between the group's exercises, current one lit,
+   a filled dot on the one you owe the round's set next, a check on the finished ones */
+.ss-pills{display:flex;gap:6px;overflow-x:auto;margin:0 -4px 12px;padding:0 4px 2px;-webkit-overflow-scrolling:touch}
+.ss-pills::-webkit-scrollbar{display:none}
+.ss-pill{
+  display:flex;align-items:center;gap:6px;flex:none;padding:7px 11px;border-radius:99px;
+  background:var(--surface-2);color:var(--label-2);font-size:13px;font-weight:500;
+  max-width:44vw;transition:background var(--fast),color var(--fast);
+}
+.ss-pill .pnm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:capitalize}
+.ss-pill .pdot{width:7px;height:7px;border-radius:50%;background:var(--label-4);flex:none}
+.ss-pill .pdot.next{background:var(--acc)}
+.ss-pill.on{background:var(--acc);color:var(--on-acc)}
+.ss-pill.on .pdot{background:var(--on-acc)}
+.ss-pill.done:not(.on){color:var(--label-3)}
+.ss-pill.done .icn{font-size:13px}
+
+/* one-set-at-a-time logging */
+.setnow-hd{
+  font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.045em;
+  color:var(--label-3);margin-bottom:8px;
+}
+.setdone-list{display:flex;flex-direction:column;margin-bottom:12px}
+.setdone{
+  display:flex;align-items:center;gap:10px;padding:7px 2px;font-size:14px;color:var(--label-2);
+  border-bottom:var(--hair) solid var(--sep);text-align:left;
+}
+.setdone:last-child{border-bottom:none}
+.setdone .n{
+  width:22px;height:22px;border-radius:50%;background:var(--acc);color:var(--on-acc);flex:none;
+  display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;
+}
+.setdone .lb{flex:1;font-variant-numeric:tabular-nums}
+.setdone .icn{color:var(--acc);font-size:14px}
+/* the current set's fields, sized for a mid-workout thumb */
+.cfgrow.setbig .stp{border-radius:12px}
+.cfgrow.setbig .stp button{width:52px;height:58px;font-size:20px}
+.cfgrow.setbig .stp .num{font-size:26px;font-weight:600}
+.cfgrow.setbig .stp-l{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--label-3)}
 
 /* --- home: today's session row --- */
 .today-row{

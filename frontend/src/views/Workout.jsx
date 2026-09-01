@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
@@ -53,10 +53,14 @@ function Elapsed({ start }) {
   return <span>{t}</span>
 }
 
-/* ---------- one exercise block (reps: weight×reps · time: a held duration · cardio: duration+speed) ---------- */
-function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemoveSet, onStartTimed, onSwap, hideSetButtons }) {
+/* ---------- one exercise block (reps: weight×reps · time: a held duration · cardio: duration+speed) ----------
+   `focus` mode logs one set at a time: finished sets collapse to a read-only strip, the set
+   in front of you gets big fields and a full-width "Log set" button. "Show all sets" flips
+   back to the full grid for anyone who plans the whole exercise up front. */
+function ExerciseBlock({ entryIdx, compact, focus, onToggle, onField, onAddSet, onRemoveSet, onStartTimed, onSwap, hideSetButtons }) {
   const S = useStore(s => s.S)
   const working = useUI(s => s.work)
+  const [showAll, setShowAll] = useState(false)
   const entry = S.active.entries[entryIdx]
   const ex = exOr(entry.id)
   const mode = modeOf({ ...(entry.target || {}), id: entry.id })
@@ -132,24 +136,60 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
       <span>{t(...plan.why)}</span>
     </div>}
     <div className="card" style={{ marginTop: 10, marginBottom: 0 }}>
-      {/* the header carries the same eff3 sizing as the rows, or the labels drift off their columns */}
-      <div className={'sethead' + (col3 ? ' eff3' : '')}><span className="n-sp" /><span className="w-sp">{col1.hd}</span>{col2 && <span className="r-sp">{col2.hd}</span>}{col3 && <span className="eff-sp">{col3.hd}</span>}{timed && <span className="ck-sp" />}<span className="ck-sp" /></div>
-      {entry.sets.map((s, i) => <div key={i} className={'setrow' + (s.done ? ' done' : '') + (col3 ? ' eff3' : '')}>
-        <div className="n">{i + 1}</div>
-        {cell(s, i, col1, 'w')}
-        {col2 && cell(s, i, col2, 'r')}
-        {col3 && cell(s, i, col3, 'eff')}
-        {/* A timed set is started, not typed: the timer counts the hold down and checks the
-            set off itself. The checkbox stays for anyone who timed it on their own watch. */}
-        {timed && <button className="setgo" aria-label={t('Start set')} disabled={s.done || !!working}
-          onClick={() => onStartTimed(i)}><Icon name="play" /></button>}
-        <Check checked={s.done} onChange={() => onToggle(i)} />
-      </div>)}
-      {!hideSetButtons && <>
+      {focus && !showAll ? (() => {
+        const curI = entry.sets.findIndex(s => !s.done)
+        const doneCount = entry.sets.filter(s => s.done).length
+        const s = curI === -1 ? null : entry.sets[curI]
+        return <>
+          {doneCount > 0 && <div className="setdone-list">
+            {entry.sets.map((x, i) => x.done && (
+              <button key={i} className="setdone" onClick={() => onToggle(i)} title={t('Undo')}>
+                <span className="n">{i + 1}</span>
+                <span className="lb">{setLabel(entry.id, x, entry.target)}</span>
+                <Icon name="check" />
+              </button>
+            ))}
+          </div>}
+          {s ? <>
+            <div className="setnow-hd">{t('Set {0} of {1}', curI + 1, entry.sets.length)}</div>
+            <div className="cfgrow setbig">
+              <div className="stp-w"><span className="stp-l">{col1.hd}</span>{cell(s, curI, col1, 'w')}</div>
+              {col2 && <div className="stp-w"><span className="stp-l">{col2.hd}</span>{cell(s, curI, col2, 'r')}</div>}
+            </div>
+            {col3 && <div className="cfgrow setbig" style={{ marginTop: 10 }}>
+              <div className="stp-w"><span className="stp-l">{col3.hd}</span>{cell(s, curI, col3, 'eff')}</div>
+            </div>}
+            <div style={{ height: 12 }} />
+            {timed
+              ? <Button variant="primary" icon="play" disabled={!!working} onClick={() => onStartTimed(curI)}>{t('Start hold ({0}s)', s.sec || 45)}</Button>
+              : <Button variant="primary" icon="check" onClick={() => onToggle(curI)}>{t('Log set')}</Button>}
+          </> : <div className="setnow-hd" style={{ padding: '10px 0 2px' }}>{t('All sets done.')}</div>}
+          <div style={{ height: 10 }} />
+          <div className="row">
+            {!hideSetButtons && <Button size="sm" icon="minus" disabled={entry.sets.length <= 1} onClick={onRemoveSet}>{t('Remove set')}</Button>}
+            {!hideSetButtons && <Button size="sm" icon="plus" onClick={onAddSet}>{t('Add set')}</Button>}
+            <Button size="sm" variant="ghost" className="dim" style={{ marginLeft: 'auto' }} onClick={() => setShowAll(true)}>{t('All sets')}</Button>
+          </div>
+        </>
+      })() : <>
+        {/* the header carries the same eff3 sizing as the rows, or the labels drift off their columns */}
+        <div className={'sethead' + (col3 ? ' eff3' : '')}><span className="n-sp" /><span className="w-sp">{col1.hd}</span>{col2 && <span className="r-sp">{col2.hd}</span>}{col3 && <span className="eff-sp">{col3.hd}</span>}{timed && <span className="ck-sp" />}<span className="ck-sp" /></div>
+        {entry.sets.map((s, i) => <div key={i} className={'setrow' + (s.done ? ' done' : '') + (col3 ? ' eff3' : '')}>
+          <div className="n">{i + 1}</div>
+          {cell(s, i, col1, 'w')}
+          {col2 && cell(s, i, col2, 'r')}
+          {col3 && cell(s, i, col3, 'eff')}
+          {/* A timed set is started, not typed: the timer counts the hold down and checks the
+              set off itself. The checkbox stays for anyone who timed it on their own watch. */}
+          {timed && <button className="setgo" aria-label={t('Start set')} disabled={s.done || !!working}
+            onClick={() => onStartTimed(i)}><Icon name="play" /></button>}
+          <Check checked={s.done} onChange={() => onToggle(i)} />
+        </div>)}
         <div style={{ height: 8 }} />
         <div className="row">
-          <Button size="sm" icon="minus" disabled={entry.sets.length <= 1} onClick={onRemoveSet}>{t('Remove set')}</Button>
-          <Button size="sm" icon="plus" onClick={onAddSet}>{t('Add set')}</Button>
+          {!hideSetButtons && <Button size="sm" icon="minus" disabled={entry.sets.length <= 1} onClick={onRemoveSet}>{t('Remove set')}</Button>}
+          {!hideSetButtons && <Button size="sm" icon="plus" onClick={onAddSet}>{t('Add set')}</Button>}
+          {focus && <Button size="sm" variant="ghost" className="dim" style={{ marginLeft: 'auto' }} onClick={() => setShowAll(false)}>{t('Current set')}</Button>}
         </div>
       </>}
     </div>
@@ -170,15 +210,14 @@ function ActiveWorkout() {
   const isSuperset = unit.length > 1
   const circ = isSuperset ? circuitOf(A, A.entries[unit[0]].sg) : null
   const round = circ ? Math.min(circ.rounds, circuitRound(A.entries, unit)) : 0
-  // Within a superset/circuit, the exercise you owe the current round's set — the one with
-  // the fewest completed sets, earliest in the group. Checking a set moves this on, and the
-  // card scrolls it into view.
+  // Superset / circuit is a pager: one exercise on screen at a time. `activeK` is the one you
+  // owe the current round's set (fewest completed sets, earliest in the group); logging a set
+  // moves it on. A tapped pill (`pickK`) wins until `activeK` advances past it.
   const donePerMember = unit.map(i => A.entries[i].sets.filter(s => s.done).length)
   const activeK = isSuperset ? Math.max(0, donePerMember.findIndex(c => c === Math.min(...donePerMember))) : 0
-  const ssRefs = useRef([])
-  useEffect(() => {
-    if (isSuperset) ssRefs.current[activeK]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-  }, [activeK, unitIdx, isSuperset])
+  const [pickK, setPickK] = useState(null)
+  useEffect(() => { setPickK(null) }, [activeK, unitIdx])
+  const shownK = pickK != null && pickK < unit.length ? pickK : activeK
 
   const total = A.entries.reduce((n, e) => n + e.sets.length, 0)
   const done = setsDoneActive(A)
@@ -309,24 +348,31 @@ function ActiveWorkout() {
 
     {A.entries.length ? <>
       <div className="muted small" style={{ marginBottom: 6 }}>{circ ? t('Circuit {0} / {1}', unitIdx + 1, units.length) : isSuperset ? t('Superset {0} / {1}', unitIdx + 1, units.length) : t('Exercise {0} / {1}', unitIdx + 1, units.length)}</div>
-      {isSuperset ? (
-        <div className="ss-card">
+      {isSuperset ? (() => {
+        const shown = unit[shownK]
+        return <div className="ss-card">
           <div className="ss-hd"><Icon name={circ ? 'reset' : 'link'} />{circ
             ? (circ.label ? circ.label + ' · ' : '') + t('round {0} / {1} · one set of each, rest after the round', round, circ.rounds)
             : t('Superset · do these back-to-back, rest after both')}</div>
-          {unit.map((idx, k) => <div key={idx} ref={el => { ssRefs.current[k] = el }}
-            className={'ss-ex' + (k === activeK ? ' active' : ' idle')}>
-            {k > 0 && <div className="ss-amp">+</div>}
-            <ExerciseBlock entryIdx={idx} compact hideSetButtons={!!circ}
-              onToggle={i => toggle(idx, i)} onField={(i, f, v) => setField(idx, i, f, v)} onAddSet={() => addSet(idx)} onRemoveSet={() => removeSet(idx)} onStartTimed={i => startTimed(idx, i)} onSwap={() => swapEntry(idx)} />
-          </div>)}
-          {circ && <div className="row" style={{ marginTop: 4 }}>
+          <div className="ss-pills">
+            {unit.map((idx, k) => {
+              const e = A.entries[idx]
+              const allDone = e.sets.length > 0 && e.sets.every(x => x.done)
+              return <button key={idx} className={'ss-pill' + (k === shownK ? ' on' : '') + (allDone ? ' done' : '')} onClick={() => setPickK(k)}>
+                {allDone ? <Icon name="check" /> : <span className={'pdot' + (k === activeK ? ' next' : '')} />}
+                <span className="pnm">{exOr(e.id).n}</span>
+              </button>
+            })}
+          </div>
+          <ExerciseBlock key={shown} entryIdx={shown} compact focus hideSetButtons={!!circ}
+            onToggle={i => toggle(shown, i)} onField={(i, f, v) => setField(shown, i, f, v)} onAddSet={() => addSet(shown)} onRemoveSet={() => removeSet(shown)} onStartTimed={i => startTimed(shown, i)} onSwap={() => swapEntry(shown)} />
+          {circ && <div className="row" style={{ marginTop: 10 }}>
             <Button size="sm" icon="minus" disabled={circ.rounds <= 1} onClick={() => bumpRound(-1)}>{t('Remove round')}</Button>
             <Button size="sm" icon="plus" onClick={() => bumpRound(1)}>{t('Add round')}</Button>
           </div>}
         </div>
-      ) : (
-        <ExerciseBlock entryIdx={cur} onToggle={i => toggle(cur, i)} onField={(i, f, v) => setField(cur, i, f, v)} onAddSet={() => addSet(cur)} onRemoveSet={() => removeSet(cur)} onStartTimed={i => startTimed(cur, i)} onSwap={() => swapEntry(cur)} />
+      })() : (
+        <ExerciseBlock key={cur} entryIdx={cur} focus onToggle={i => toggle(cur, i)} onField={(i, f, v) => setField(cur, i, f, v)} onAddSet={() => addSet(cur)} onRemoveSet={() => removeSet(cur)} onStartTimed={i => startTimed(cur, i)} onSwap={() => swapEntry(cur)} />
       )}
     </> : <div className="empty"><div className="ico"><Icon name="shuffle" /></div>{t('Freestyle workout — add your first exercise.')}</div>}
 
