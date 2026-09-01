@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from 'react-router-dom'
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store/useStore.js'
 import { exOr } from '../lib/exercises.js'
 import { uid } from '../lib/format.js'
@@ -27,7 +27,52 @@ export default function RoutineEdit() {
   // superset ids and the circuit meta that hangs off them.
   const editR = fn => update(s => { const rr = s.routines.find(x => x.id === id); fn(rr); cleanupSg(rr.ex); cleanupCg(rr) })
   const edit = fn => editR(rr => fn(rr.ex))
-  const move = (i, dir) => edit(ex => { const j = i + dir; if (j < 0 || j >= ex.length) return;[ex[i], ex[j]] = [ex[j], ex[i]] })
+
+  // Reorder is drag-only now (the up/down buttons are gone). Pointer events, so a finger and
+  // a mouse behave the same, and the handle's touch-action:none keeps a drag from scrolling
+  // the page. The dragged row tracks the pointer, the rows it passes slide out of the way,
+  // and the array is spliced once — on drop.
+  const rowRefs = useRef([])
+  const dragData = useRef(null)
+  const [drag, setDrag] = useState(null)   // { from, to, dy, h } while a drag is live
+  const dragStart = (i, ev) => {
+    ev.stopPropagation()
+    const h = rowRefs.current[i]?.getBoundingClientRect().height || 56
+    dragData.current = { from: i, to: i, startY: ev.clientY, h }
+    try { ev.currentTarget.setPointerCapture(ev.pointerId) } catch { /* */ }
+    setDrag({ from: i, to: i, dy: 0, h })
+  }
+  const dragMove = ev => {
+    const d = dragData.current
+    if (!d) return
+    const y = ev.clientY
+    let to = d.from
+    for (let k = rowRefs.current.length - 1; k > d.from; k--) {
+      const rc = rowRefs.current[k]?.getBoundingClientRect()
+      if (rc && y > rc.top + rc.height / 2) { to = k; break }
+    }
+    for (let k = 0; k < d.from; k++) {
+      const rc = rowRefs.current[k]?.getBoundingClientRect()
+      if (rc && y < rc.top + rc.height / 2) { to = k; break }
+    }
+    d.to = to
+    setDrag({ from: d.from, to, dy: y - d.startY, h: d.h })
+  }
+  const dragEnd = () => {
+    const d = dragData.current
+    dragData.current = null
+    if (d && d.to !== d.from) edit(ex => { const [m] = ex.splice(d.from, 1); ex.splice(d.to, 0, m) })
+    setDrag(null)
+  }
+  const rowStyle = i => {
+    if (!drag) return undefined
+    if (i === drag.from) return { transform: `translateY(${drag.dy}px)`, position: 'relative', zIndex: 20, opacity: 0.92, transition: 'none' }
+    const { from, to, h } = drag
+    let ty = 0
+    if (to > from && i > from && i <= to) ty = -h
+    else if (to < from && i >= to && i < from) ty = h
+    return { transform: `translateY(${ty}px)`, transition: 'transform .18s ease' }
+  }
   const toggleLink = i => edit(ex => {
     if (i < 1) return
     const cur = ex[i], prev = ex[i - 1]
@@ -64,6 +109,7 @@ export default function RoutineEdit() {
   const units = supersetUnits(r.ex)
   const unitFirst = new Set(units.filter(u => u.length > 1).map(u => u[0]))
   const inSS = new Set(units.filter(u => u.length > 1).flat())
+  rowRefs.current.length = r.ex.length   // drop refs for rows that no longer exist
 
   return <div className="narrow">
     <div className="hdr">
@@ -91,7 +137,7 @@ export default function RoutineEdit() {
       const linkedPrev = i > 0 && e.sg && r.ex[i - 1].sg === e.sg
       const unit = unitFirst.has(i) ? units.find(u => u[0] === i) : null
       const circ = unit && circuitOf(r, e.sg)
-      return <div key={i}>
+      return <div key={i} ref={el => { rowRefs.current[i] = el }} style={rowStyle(i)}>
         {unit && <div className="ss-label" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <Icon name={circ ? 'reset' : 'link'} />{circ ? t('Circuit') : t('Superset')}
           <button className={'iconbtn' + (circ ? ' on-ss' : '')}
@@ -112,12 +158,14 @@ export default function RoutineEdit() {
         }}>
           <Thumb ex={ex} />
           <div className="grow"><div className="tt capitalize">{ex.n}</div><div className="ss">{exLine(e, S.unit)}</div></div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 'none', alignItems: 'center' }}>
-            {i > 0 && <button className={'iconbtn' + (linkedPrev ? ' on-ss' : '')} title={t('Superset with exercise above')} style={{ width: 32, height: 28, borderRadius: 8, fontSize: 15 }} onClick={ev => { ev.stopPropagation(); toggleLink(i) }}><Icon name="link" /></button>}
-            <div style={{ display: 'flex', gap: 2 }}>
-              <button className="iconbtn" aria-label="Move up" style={{ width: 28, height: 24, borderRadius: 7, fontSize: 12 }} onClick={ev => { ev.stopPropagation(); move(i, -1) }}><Icon name="chevronUp" /></button>
-              <button className="iconbtn" aria-label="Move down" style={{ width: 28, height: 24, borderRadius: 7, fontSize: 12 }} onClick={ev => { ev.stopPropagation(); move(i, 1) }}><Icon name="chevronDown" /></button>
-            </div>
+          <div style={{ display: 'flex', gap: 4, flex: 'none', alignItems: 'center' }}>
+            {i > 0 && <button className={'iconbtn' + (linkedPrev ? ' on-ss' : '')} title={t('Superset with exercise above')} style={{ width: 32, height: 30, borderRadius: 8, fontSize: 15 }} onClick={ev => { ev.stopPropagation(); toggleLink(i) }}><Icon name="link" /></button>}
+            <button className="iconbtn" aria-label={t('Drag to reorder')} title={t('Drag to reorder')}
+              style={{ width: 34, height: 34, borderRadius: 8, fontSize: 15, cursor: 'grab', touchAction: 'none' }}
+              onClick={ev => ev.stopPropagation()}
+              onPointerDown={ev => dragStart(i, ev)} onPointerMove={dragMove} onPointerUp={dragEnd} onPointerCancel={dragEnd}>
+              <Icon name="list" />
+            </button>
           </div>
         </div>
       </div>
@@ -137,7 +185,7 @@ export default function RoutineEdit() {
       </div>
     })()}
 
-    <div className="small dim row" style={{ margin: '10px 2px', gap: 5 }}><Icon name="link" style={{ fontSize: 13 }} />{t('Tap the link button on an exercise to superset it with the one above — you’ll do them back-to-back.')}</div>
+    <div className="small dim row" style={{ margin: '10px 2px', gap: 5 }}><Icon name="link" style={{ fontSize: 13 }} />{t('Tap the link button to superset an exercise with the one above; drag the handle to reorder.')}</div>
     <Button variant="primary" onClick={() => exercisePicker(ex => exConfigSheet(ex, null, cfg => edit(x => { x.push({ id: ex.id, ...cfg }) }), null, r))} icon="plus">{t('Add exercise')}</Button>
     <div style={{ height: 10 }} />
     <Button variant="danger" onClick={() => confirmSheet({
