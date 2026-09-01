@@ -8,7 +8,21 @@
 
 import { TOOLS, runTool } from './voice-tools.js'
 
-const MAX_STEPS = 3
+const MAX_STEPS = 4
+
+// What runAgent speaks when the loop ends with no answer produced. Exported so the
+// benchmark can treat it as a non-answer.
+export const EXHAUSTED_REPLY = "Sorry, I couldn't work that out."
+
+// Small models sometimes shout tool names or add whitespace. Map back to a real one.
+function resolveToolName(name, tools = TOOLS) {
+  if (!name) return name
+  const n = String(name).trim()
+  if (tools.some(t => t.name === n)) return n
+  const lc = n.toLowerCase()
+  const hit = tools.find(t => t.name.toLowerCase() === lc)
+  return hit ? hit.name : n
+}
 
 // Terse — the system prompt is re-processed on every agent turn, so every token costs.
 const SHORT = {
@@ -34,8 +48,8 @@ export function buildSystemPrompt(tools = TOOLS) {
   return [
     'You are a hands-free voice assistant in a gym app. Reply with exactly ONE JSON object:',
     '{"tool":"NAME","args":{...}} to call a tool, or {"say":"..."} to answer aloud.',
-    'Call a tool to get real numbers, then answer. Never guess numbers.',
-    'The spoken answer must be ONE short sentence, max ~12 words. No lists, no markdown.',
+    'Call a tool to get real numbers or to do an action, then answer. Never guess numbers.',
+    'Answer in English, ONE short sentence, max ~12 words. No lists, no markdown.',
     '',
     'TOOLS:',
     ...lines,
@@ -89,8 +103,12 @@ export async function runAgent(transcript, generate, opts = {}) {
     { role: 'user', content: `[state] ${stateSnapshot()}\n\n${transcript}` },
   ]
   const steps = []
+  let calledTool = false
 
   for (let i = 0; i < maxSteps; i++) {
+    // On the final step only a spoken answer is useful — another tool call can't be run.
+    const answerOnly = i === maxSteps - 1
+
     let raw
     try { raw = await generate({ system, messages }) }
     catch (e) { return { speak: 'The assistant model failed to respond.', steps, transcript, error: String(e?.message || e) } }
@@ -106,20 +124,34 @@ export async function runAgent(transcript, generate, opts = {}) {
       opts.onStep?.(steps[steps.length - 1])
       return { speak: obj.say, steps, transcript }
     }
-    if (obj.tool) {
-      const result = runTool(obj.tool, obj.args || {})
-      const step = { tool: obj.tool, args: obj.args || {}, result }
+    if (obj.tool && !answerOnly) {
+      const name = resolveToolName(obj.tool, tools)
+      const result = runTool(name, obj.args || {})
+      const step = { tool: name, args: obj.args || {}, result }
       steps.push(step)
+      calledTool = true
       opts.onStep?.(step)
-      messages.push({ role: 'assistant', content: JSON.stringify({ tool: obj.tool, args: obj.args || {} }) })
-      messages.push({ role: 'tool', name: obj.tool, content: JSON.stringify(result) })
+      messages.push({ role: 'assistant', content: JSON.stringify({ tool: name, args: obj.args || {} }) })
+      messages.push({ role: 'tool', name, content: `${JSON.stringify(result)}\nYou now have what you need. Reply {"say":"<one short sentence>"} with the answer.` })
       continue
     }
-    // shape we don't recognise
-    messages.push({ role: 'user', content: 'Use {"tool":...} or {"say":...}.' })
+    // a tool call we can't run (final step), or a shape we don't recognise
+    messages.push({ role: 'user', content: 'Reply now with exactly {"say":"<one short sentence>"}.' })
   }
 
-  // ran out of steps — say the last tool's message if we have one
+  // Loop ended without a spoken answer. Force one final say-only turn from the model.
+  if (calledTool) {
+    messages.push({ role: 'user', content: 'You have all the results above. Reply now with exactly {"say":"<one short sentence>"}.' })
+    try {
+      const obj = extractJson(await generate({ system, messages }))
+      if (obj && typeof obj.say === 'string') {
+        steps.push({ say: obj.say })
+        opts.onStep?.(steps[steps.length - 1])
+        return { speak: obj.say, steps, transcript, forcedSay: true }
+      }
+    } catch { /* fall through to the canned reply */ }
+  }
+
   const last = [...steps].reverse().find(s => s.result?.message)
-  return { speak: last?.result.message || "I couldn't work that out.", steps, transcript, exhausted: true }
+  return { speak: last?.result.message || EXHAUSTED_REPLY, steps, transcript, exhausted: true }
 }

@@ -95,6 +95,7 @@ test('runs out of steps gracefully', async () => {
 
 test('stateSnapshot is compact and reflects the active workout', () => {
   const snap = stateSnapshot()
-  expect(snap).toMatch(/Exercise 1\/2/)
-  expect(snap).toMatch(/min elapsed/)
+  expect(snap).toMatch(/exercise number 1/)
+  expect(snap).toMatch(/2 exercises/)
+  expect(snap).toMatch(/minutes/)
 })
