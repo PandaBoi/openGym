@@ -15,7 +15,9 @@ import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.CapacitorPlugin
 import com.getcapacitor.annotation.Permission
 import com.getcapacitor.annotation.PermissionCallback
+import java.io.File
 import java.util.Locale
+import java.util.concurrent.Executors
 
 /**
  * Milestone 3 voice bridge — all on-device, no network.
@@ -264,5 +266,61 @@ class VoiceAssistantPlugin : Plugin() {
     @PluginMethod
     fun isSpeaking(call: PluginCall) {
         call.resolve(JSObject().put("speaking", tts?.isSpeaking == true))
+    }
+
+    // ---- on-device LLM (Milestone 4) ----------------------------------------
+    // All native LLM calls run on one worker thread — llama.cpp state is not reentrant.
+
+    private val llmExec = Executors.newSingleThreadExecutor()
+
+    @PluginMethod
+    fun llmAvailable(call: PluginCall) {
+        call.resolve(JSObject().put("available", LlamaBridge.ensureLib()))
+    }
+
+    @PluginMethod
+    fun loadModel(call: PluginCall) {
+        val path = call.getString("path")
+        if (path.isNullOrBlank()) { call.reject("path required"); return }
+        val nCtx = call.getInt("nCtx") ?: 4096
+        val cores = Runtime.getRuntime().availableProcessors()
+        val nThreads = call.getInt("nThreads") ?: (cores - 2).coerceIn(2, 6)
+        llmExec.execute {
+            if (!LlamaBridge.ensureLib()) { call.reject("native lib unavailable"); return@execute }
+            if (!File(path).exists()) { call.reject("model file not found: $path"); return@execute }
+            val ok = try { LlamaBridge.nativeLoad(path, nCtx, nThreads) } catch (t: Throwable) { false }
+            if (ok) call.resolve(JSObject().put("loaded", true).put("nCtx", nCtx).put("nThreads", nThreads))
+            else call.reject("model load failed")
+        }
+    }
+
+    @PluginMethod
+    fun generate(call: PluginCall) {
+        val prompt = call.getString("prompt")
+        if (prompt == null) { call.reject("prompt required"); return }
+        val grammar = call.getString("grammar") ?: ""
+        val maxTokens = call.getInt("maxTokens") ?: 256
+        val temp = call.getFloat("temp") ?: 0.0f
+        llmExec.execute {
+            if (!LlamaBridge.nativeIsLoaded()) { call.reject("no model loaded"); return@execute }
+            val t0 = System.currentTimeMillis()
+            val text = try { LlamaBridge.nativeGenerate(prompt, grammar, maxTokens, temp) }
+                catch (t: Throwable) { call.reject("generate failed: ${t.message}"); return@execute }
+            call.resolve(JSObject().put("text", text).put("ms", System.currentTimeMillis() - t0))
+        }
+    }
+
+    @PluginMethod
+    fun modelLoaded(call: PluginCall) {
+        val loaded = try { LlamaBridge.ensureLib() && LlamaBridge.nativeIsLoaded() } catch (_: Throwable) { false }
+        call.resolve(JSObject().put("loaded", loaded))
+    }
+
+    @PluginMethod
+    fun unloadModel(call: PluginCall) {
+        llmExec.execute {
+            try { if (LlamaBridge.ensureLib()) LlamaBridge.nativeFree() } catch (_: Throwable) {}
+            call.resolve()
+        }
     }
 }
