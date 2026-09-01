@@ -245,7 +245,7 @@ export const VOICE_ENABLED_KEY = 'voice.enabled'
 
 function VoiceAssistantCard({ toast }) {
   const [avail, setAvail] = useState(null)          // null checking | false | true
-  const [modelKey, setModelKey] = useState(() => localStorage.getItem(VOICE_MODEL_KEY) || 'qwen2.5-1.5b')
+  const [modelKey, setModelKey] = useState(() => localStorage.getItem(VOICE_MODEL_KEY) || 'hammer2.1-1.5b')
   const [st, setSt] = useState(null)               // { exists, bytes } for modelKey
   const [pct, setPct] = useState(null)             // download %
   const [busy, setBusy] = useState(false)
@@ -255,7 +255,9 @@ function VoiceAssistantCard({ toast }) {
   const refresh = async key => {
     const { voiceLlm } = await import('../lib/voice-llm.js')
     setSt(await voiceLlm.modelState(key))
-    setLoaded(await voiceLlm.isLoaded())
+    // "on" tracks the enabled flag, not whether the model is currently in RAM — it's
+    // loaded on demand by the mic button and freed after use.
+    setLoaded(localStorage.getItem(VOICE_ENABLED_KEY) === '1')
   }
   useEffect(() => {
     let ok = true
@@ -286,12 +288,14 @@ function VoiceAssistantCard({ toast }) {
     setBusy(true)
     try {
       const { voiceLlm } = await import('../lib/voice-llm.js')
-      console.log('[voice] enable: loading', modelKey)
-      await voiceLlm.load(modelKey)
+      const ms = await voiceLlm.modelState(modelKey)
+      if (!ms?.exists) { toast(t('Download the model first')); return }
       localStorage.setItem(VOICE_ENABLED_KEY, '1')
       setLoaded(true); toast(t('Voice assistant on'))
-      console.log('[voice] enable: loaded')
-    } catch (e) { console.log('[voice] enable fail:', e && (e.message || e)); toast(t('Couldn’t load model: {0}', e.message || e)) }
+      // Warm the model now so the first command is instant (same as the boot path in
+      // App.jsx). Resident ~0.9 GB for the session; freed when voice is turned off.
+      voiceLlm.load(modelKey).then(() => voiceLlm.warm(modelKey)).catch(() => {})
+    } catch (e) { console.log('[voice] enable fail:', e && (e.message || e)); toast(t('Couldn’t enable: {0}', e.message || e)) }
     finally { setBusy(false) }
   }
   const disable = async () => {
@@ -319,7 +323,7 @@ function VoiceAssistantCard({ toast }) {
         <Segmented className="seg-inline"
           value={modelKey}
           onChange={pickModel}
-          options={Object.entries(models).map(([k, m]) => ({ value: k, label: k === 'qwen2.5-3b' ? t('Smart') : t('Fast') }))} />
+          options={Object.entries(models).map(([k, m]) => ({ value: k, label: m.short || m.label }))} />
       </Row>
       {busy && pct != null
         ? <Row icon="download" iconTint="var(--blue)" title={t('Downloading… {0}%', pct)}

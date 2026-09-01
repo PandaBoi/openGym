@@ -6,6 +6,7 @@ import { bindUI } from './components/ui.jsx'
 import { ACCENTS } from './lib/format.js'
 import { setLang, useLang } from './lib/i18n.js'
 import { setNav } from './lib/nav.js'
+import { MOBILE } from './lib/mobile.js'
 import { useWakeLock } from './lib/wakelock.js'
 import { startFlow } from './sheets.jsx'
 import Icon from './components/Icon.jsx'
@@ -51,21 +52,27 @@ function Shell() {
   // bound to the workout, not to the route — checking Stats mid-session keeps the screen on
   useWakeLock(!!S.active && S.keepAwake !== false)
 
-  // Native build: if the on-device voice model was enabled, load it in the background at boot
-  // so the mic button is ready without a 20 s stall mid-workout.
+  // On-device voice model: with voice enabled, load it at boot and prime its KV cache
+  // (the static tool-list prefix) so the first command in a workout skips prompt-eval.
+  // It then stays resident for the app session (~0.9 GB for the default Hammer 1.5B).
+  // If this fails, or voice is turned on later, VoiceButton still loads it lazily on the
+  // first mic press and manages its own unload. See src/components/VoiceButton.jsx.
   useEffect(() => {
-    if (!import.meta.env.VITE_MOBILE || localStorage.getItem('voice.enabled') !== '1') {
-      console.log('[voice] autoload skip; enabled=', localStorage.getItem('voice.enabled'))
-      return
-    }
-    const key = localStorage.getItem('voice.model') || 'qwen2.5-1.5b'
-    import('./lib/voice-llm.js').then(({ voiceLlm }) =>
-      voiceLlm.isLoaded().then(l => {
-        if (l) { console.log('[voice] autoload: already loaded'); return }
-        console.log('[voice] autoload: loading', key)
-        voiceLlm.load(key).then(() => console.log('[voice] autoload: loaded')).catch(e => console.log('[voice] autoload fail:', e && (e.message || e)))
-      })
-    )
+    if (!MOBILE || localStorage.getItem('voice.enabled') !== '1') return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { voiceLlm, DEFAULT_MODEL } = await import('./lib/voice-llm.js')
+        const key = localStorage.getItem('voice.model') || DEFAULT_MODEL
+        if (cancelled || (await voiceLlm.isLoaded())) return
+        console.log('[voice] boot warm-up: loading', key)
+        await voiceLlm.load(key)
+        if (cancelled) return
+        await voiceLlm.warm(key)
+        console.log('[voice] boot warm-up: model loaded + KV primed')
+      } catch (e) { console.log('[voice] boot warm-up skipped:', e && (e.message || e)) }
+    })()
+    return () => { cancelled = true }
   }, [])
 
   const authed = user || isGuest

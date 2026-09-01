@@ -9,12 +9,20 @@ import Icon from './Icon.jsx'
 // Push-to-talk button. Tap to listen, tap again (or let the recognizer settle) to act.
 // Shows only during an active workout.
 //
-//   tap → listen → transcript → { LLM agent if a model is loaded, else regex grammar }
+//   tap → listen → transcript → { LLM agent if voice.enabled, else regex grammar }
 //        → run tools → speak the reply
 //
-// Everything on-device, no network.
+// Everything on-device, no network. With voice enabled, App.jsx loads the LLM model at
+// boot and keeps it resident for the session — the mic-press path below then just finds
+// it loaded. If that boot load didn't happen (failed, or voice toggled on mid-session),
+// this component loads the model lazily on the first mic press and unloads it when the
+// workout ends or after IDLE_UNLOAD_MS with no voice use. It only ever unloads a model
+// it loaded itself (ownsModelRef) — never the one warmed at boot.
 
 const HINT = 'e.g. "log 8 reps at 60 kilos" · "next exercise" · "start rest" · "what\'s my target"'
+const IDLE_UNLOAD_MS = 90_000
+
+const llmEnabled = () => MOBILE && localStorage.getItem('voice.enabled') === '1'
 
 export default function VoiceButton() {
   const active = useStore(s => s.S.active)
@@ -24,6 +32,9 @@ export default function VoiceButton() {
   const [isReply, setIsReply] = useState(false)
   const ctrlRef = useRef(null)
   const hideRef = useRef(null)
+  const idleRef = useRef(null)   // pending "unload the model" timer
+  const loadRef = useRef(null)   // cached in-flight / resolved model load
+  const ownsModelRef = useRef(false)   // true only if THIS component called load() (vs. boot warm-up)
 
   useEffect(() => {
     let ok = true
@@ -31,7 +42,50 @@ export default function VoiceButton() {
     return () => { ok = false }
   }, [])
 
-  useEffect(() => () => { ctrlRef.current?.cancel?.(); clearTimeout(hideRef.current) }, [])
+  useEffect(() => () => {
+    ctrlRef.current?.cancel?.()
+    clearTimeout(hideRef.current)
+    clearTimeout(idleRef.current)
+    // workout ended / button unmounted — free the model straight away, but only if we
+    // loaded it. A model warmed at boot stays resident for the session (App.jsx).
+    if (ownsModelRef.current) {
+      loadRef.current = null
+      ownsModelRef.current = false
+      import('../lib/voice-llm.js').then(({ voiceLlm }) => voiceLlm.unload()).catch(() => {})
+    }
+  }, [])
+
+  // Load the model on demand; cache the promise so repeat taps in a session are instant.
+  const ensureModel = () => {
+    if (!loadRef.current) {
+      loadRef.current = (async () => {
+        const { voiceLlm, DEFAULT_MODEL } = await import('../lib/voice-llm.js')
+        const key = localStorage.getItem('voice.model') || DEFAULT_MODEL
+        if (!(await voiceLlm.isLoaded())) {
+          console.log('[voice] loading model', key)
+          await voiceLlm.load(key)
+          ownsModelRef.current = true   // we loaded it, so we're responsible for unloading it
+          console.log('[voice] model loaded')
+        }
+        return { voiceLlm, key }
+      })().catch(e => { console.log('[voice] model load failed:', e && (e.message || e)); loadRef.current = null; return null })
+    }
+    return loadRef.current
+  }
+
+  const scheduleUnload = () => {
+    if (!ownsModelRef.current) return   // boot-warmed model — leave it resident
+    clearTimeout(idleRef.current)
+    idleRef.current = setTimeout(async () => {
+      loadRef.current = null
+      ownsModelRef.current = false
+      try {
+        const { voiceLlm } = await import('../lib/voice-llm.js')
+        await voiceLlm.unload()
+        console.log('[voice] model unloaded (idle)')
+      } catch { /* ignore */ }
+    }, IDLE_UNLOAD_MS)
+  }
 
   const flash = (text, reply) => {
     setLine(text); setIsReply(!!reply)
@@ -44,20 +98,22 @@ export default function VoiceButton() {
     let reply
     try {
       let useLlm = false
-      if (MOBILE) {
-        const { voiceLlm } = await import('../lib/voice-llm.js')
-        useLlm = await voiceLlm.isLoaded()
-        console.log('[voice] model loaded?', useLlm)
-        if (useLlm) {
+      if (llmEnabled()) {
+        clearTimeout(idleRef.current)   // in use — cancel any pending unload
+        flash('One sec — starting the voice model…')
+        const loaded = await ensureModel()
+        if (loaded) {
+          const { voiceLlm, key } = loaded
           const { runAgent } = await import('../lib/voice-llm-agent.js')
           flash(raw)   // show the transcript while the model thinks
           console.log('[voice] runAgent start:', JSON.stringify(raw))
           const r = await Promise.race([
-            runAgent(raw, voiceLlm.makeGenerate(), { onStep: s => console.log('[voice] step', JSON.stringify(s)) }),
+            runAgent(raw, voiceLlm.makeGenerate(key), { onStep: s => console.log('[voice] step', JSON.stringify(s)) }),
             new Promise((_, rej) => setTimeout(() => rej(new Error('llm timeout')), 180000)),
           ])
           console.log('[voice] runAgent done:', JSON.stringify(r).slice(0, 300))
           reply = r.speak
+          useLlm = true
         }
       }
       if (!useLlm || !reply) reply = runIntent(parseIntent(raw))
@@ -68,6 +124,7 @@ export default function VoiceButton() {
     flash(reply, true)
     setState('idle')
     voice.speak(reply)
+    if (llmEnabled()) scheduleUnload()   // free the model if no further voice use soon
   }
 
   const start = async () => {
@@ -80,6 +137,7 @@ export default function VoiceButton() {
       console.log('[voice] permission granted=', granted)
       if (!granted) { flash('Microphone permission is off — enable it in Settings, then tap again.'); return }
       setLine(''); setState('listening')
+      if (llmEnabled()) { clearTimeout(idleRef.current); ensureModel() }   // warm up while the user talks
       ctrlRef.current = await voice.listen({
         onPartial: t => setLine(t),
         onResult: t => {
