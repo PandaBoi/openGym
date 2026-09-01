@@ -713,10 +713,20 @@ h4.sec{
 }
 .bw-pm:active{background:var(--surface-2);transform:scale(.92)}
 .bw-read{
-  font-size:52px;font-weight:600;letter-spacing:-.035em;min-width:158px;text-align:center;
+  display:flex;align-items:baseline;justify-content:center;gap:6px;
+  font-size:52px;font-weight:600;letter-spacing:-.035em;
   font-variant-numeric:tabular-nums;line-height:1;
 }
 .bw-read .u{font-size:19px;color:var(--label-2);font-weight:400;letter-spacing:-.01em}
+/* the big readout is a real input — tap to type. field-sizing keeps it hugging the
+   number on modern WebViews; the min/max width bound it everywhere else. */
+.bw-num{
+  font:inherit;letter-spacing:inherit;color:var(--label);text-align:center;
+  background:none;border:none;outline:none;padding:0 2px;
+  field-sizing:content;min-width:1.5ch;max-width:5ch;
+  border-bottom:2px solid var(--sep);transition:border-color var(--fast);
+}
+.bw-num:focus{border-bottom-color:var(--acc)}
 .bwin{display:flex;align-items:baseline;justify-content:center;gap:7px;margin:16px 0}
 .bwin input{
   width:150px;background:none;border:none;outline:none;text-align:right;
@@ -875,7 +885,14 @@ h4.sec{
   font-size:12px;font-weight:600;color:var(--acc);margin-bottom:12px;
   text-align:center;display:flex;align-items:center;justify-content:center;gap:5px;
 }
-.ss-ex{position:relative}
+.ss-ex{position:relative;transition:opacity var(--fast)}
+/* the exercise you're on in the round is lit; the others recede so the "do this next"
+   is unambiguous without scrolling to hunt for it */
+.ss-ex.idle{opacity:.55}
+.ss-ex.active::before{
+  content:'';position:absolute;left:-14px;top:2px;bottom:2px;width:3px;
+  border-radius:2px;background:var(--acc);
+}
 .ss-amp{text-align:center;font-size:15px;font-weight:600;color:var(--acc);margin:14px 0 8px}
 
 /* --- home: today's session row --- */

@@ -11,7 +11,7 @@ import { starterRoutines } from './lib/starter.js'
 import Media, { Thumb } from './components/Media.jsx'
 import Stepper from './components/Stepper.jsx'
 import Icon from './components/Icon.jsx'
-import { Button, Slider, Switch, Segmented, SelectRow, Row } from './components/ui.jsx'
+import { Button, Slider, Switch, Segmented, SelectRow, Row, NumberField } from './components/ui.jsx'
 import { glyphOf, GLYPH_GROUPS, DEFAULT_GLYPH } from './lib/glyphs.js'
 import BodyMap from './components/BodyMap.jsx'
 import { loadOfWorkouts } from './lib/muscles.js'
@@ -70,7 +70,11 @@ function WeightInput({ value, setValue, unit }) {
   return <>
     <div className="bwstep">
       <button className="bw-pm" onClick={() => onSlide(value - 0.1)} aria-label="minus 0.1"><Icon name="minus" /></button>
-      <div className="bw-read">{fmtNum(value)}<span className="u"> {unit}</span></div>
+      {/* tap the number to type it straight in; the steppers/slider still work */}
+      <div className="bw-read">
+        <NumberField className="bw-num" value={value} decimal onChange={v => setValue(clamp(v))} aria-label={t('Weight')} />
+        <span className="u">{unit}</span>
+      </div>
       <button className="bw-pm" onClick={() => onSlide(value + 0.1)} aria-label="plus 0.1"><Icon name="plus" /></button>
     </div>
     <div className="chips" style={{ justifyContent: 'center', margin: '8px 0' }}>
@@ -857,8 +861,13 @@ function TopWeight({ entryIdx, close }) {
   const entry = A ? A.entries[entryIdx] : null
   const ex = entry && EXIDX[entry.id]
   const maxSet = entry ? Math.max(0, ...entry.sets.filter(s => s.done).map(s => s.w || 0)) : 0
+  // "Previous best" is the all-time high — kept for the record line below, not for the default.
   const prevBest = entry ? Math.max((st.exWeights[entry.id] || {}).w || 0, bestWeightFor(st, entry.id)) : 0
-  const [v, setV] = useState(entry ? (Math.max(maxSet, prevBest) || entry.target.weight || 0) : 0)
+  // Default to what you actually did today, then the weight progression prescribed this
+  // session, then the working weight you kept last time. Not the all-time best — that
+  // overshoots every deload.
+  const lastWorking = entry ? (st.exWeights[entry.id] || {}).w || 0 : 0
+  const [v, setV] = useState(entry ? (maxSet || (entry.plan?.weight ?? 0) || lastWorking || entry.target.weight || 0) : 0)
   useEffect(() => { if (!entry) close() }, [!entry])
 
   const units = supersetUnits(A ? A.entries : [])

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
@@ -170,6 +170,15 @@ function ActiveWorkout() {
   const isSuperset = unit.length > 1
   const circ = isSuperset ? circuitOf(A, A.entries[unit[0]].sg) : null
   const round = circ ? Math.min(circ.rounds, circuitRound(A.entries, unit)) : 0
+  // Within a superset/circuit, the exercise you owe the current round's set — the one with
+  // the fewest completed sets, earliest in the group. Checking a set moves this on, and the
+  // card scrolls it into view.
+  const donePerMember = unit.map(i => A.entries[i].sets.filter(s => s.done).length)
+  const activeK = isSuperset ? Math.max(0, donePerMember.findIndex(c => c === Math.min(...donePerMember))) : 0
+  const ssRefs = useRef([])
+  useEffect(() => {
+    if (isSuperset) ssRefs.current[activeK]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [activeK, unitIdx, isSuperset])
 
   const total = A.entries.reduce((n, e) => n + e.sets.length, 0)
   const done = setsDoneActive(A)
@@ -305,7 +314,8 @@ function ActiveWorkout() {
           <div className="ss-hd"><Icon name={circ ? 'reset' : 'link'} />{circ
             ? (circ.label ? circ.label + ' · ' : '') + t('round {0} / {1} · one set of each, rest after the round', round, circ.rounds)
             : t('Superset · do these back-to-back, rest after both')}</div>
-          {unit.map((idx, k) => <div key={idx} className="ss-ex">
+          {unit.map((idx, k) => <div key={idx} ref={el => { ssRefs.current[k] = el }}
+            className={'ss-ex' + (k === activeK ? ' active' : ' idle')}>
             {k > 0 && <div className="ss-amp">+</div>}
             <ExerciseBlock entryIdx={idx} compact hideSetButtons={!!circ}
               onToggle={i => toggle(idx, i)} onField={(i, f, v) => setField(idx, i, f, v)} onAddSet={() => addSet(idx)} onRemoveSet={() => removeSet(idx)} onStartTimed={i => startTimed(idx, i)} onSwap={() => swapEntry(idx)} />
