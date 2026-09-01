@@ -24,8 +24,60 @@ mic button → SpeechRecognizer (STT) → transcript
 | Grammar fallback | `src/lib/voice-intents.js` | deterministic spoken grammar, also the instant path while the model downloads |
 | UI | `src/components/VoiceButton.jsx`, `views/Settings.jsx` (`VoiceAssistantCard`) | mic FAB during a workout; model download / on-off |
 
-Models: Qwen2.5 **1.5B** (Fast, ~0.9 GB) / **3B** (Smart, ~1.8 GB), **Q4_0** GGUF from the
-official `Qwen/*-GGUF` HF repos, downloaded on first use into the app's private files dir.
+Models (`MODELS` in `voice-llm.js`): **Hammer 2.1 1.5B** (default, ~0.9 GB, `hammer`
+format) / **Qwen2.5 3B** (alternate, ~1.8 GB, `chatml` format). **Q4_0** GGUF, downloaded
+on first use into the app's private files dir. See "The model" below.
+
+---
+
+## The model — Hammer 2.1 1.5B (shipped v1.5.0, 2026-08-31)
+
+The agent is only as good as the model's tool-*selection*. The benchmark measures exactly
+that: `npm run eval:voice` (frontend → `python3 scripts/voice-eval/run.py`) runs 48 spoken
+commands through the real GGUF and scores whether the right tool fires and a real answer
+comes back. Cases are `cases.json`, models are `models.json`, adapters are
+`src/lib/voice-llm-formats.js` (shared by the app and the benchmark — one source of truth).
+
+### Bake-off (Mac / Metal, Q4_0, temp 0, deterministic — `clearHistory` per call)
+
+| model | size | bench | notes |
+|---|---|---|---|
+| Qwen2.5-1.5B-Instruct | 0.9 GB | **25 %** | answers from the state snapshot, rarely calls a tool, invents numbers |
+| Qwen2.5-3B-Instruct | 1.9 GB | **75 %** | tool selection mostly there, but ~1.8 GB resident is too heavy for the S23+ |
+| **Hammer2.1-1.5b** (MadeAgents) | 0.9 GB | **90 %** | Qwen2.5-Coder-1.5B + "function masking". 3B-class selection in a 1.5B footprint. **Shipped.** |
+| LFM2-1.2B-Tool (Liquid AI) | 0.7 GB | **35 %** | special-token fix confirmed (it *does* call tools now) — 35 % is its real, weak score. Out. |
+
+`docs/VOICE_LLM.md` earlier showed 83 %/85 % for the 3B/Hammer — that was KV-reuse noise
+before `clearHistory` was enforced.
+
+### What this says
+
+- **1.5B general-instruct models can't do the agent loop.** The jump is at ~3B for a
+  *general* model — or a model **fine-tuned for function calling**, which puts 3B-class
+  tool selection in a 1.5B footprint. That's Hammer.
+- License is **cc-by-nc-4.0** — non-commercial. Fine for this personal fork; can't
+  redistribute the app with it bundled.
+- With the lazy load + unload lifecycle (VoiceButton, v1.4.1), the ~0.9 GB model only
+  occupies RAM during a query, so it's comfortable on the S23+.
+
+### How Hammer is wired (`src/lib/voice-llm-formats.js`, `hammerFormat`)
+
+Its own chat template; tools passed as a JSON list; a `respond` pseudo-tool carries the
+spoken answer; output parsed from a `[{"name","arguments"}]` list; **no GBNF grammar**
+(`voice-llm.js makeGenerate()` passes `grammar: ''`, and `cpp/voicellm.cpp` already falls
+through to a plain greedy sampler when the grammar string is empty — no native change was
+needed). `runAgent` is untouched — it still sees neutral `{"tool"|"say"}` strings because
+the adapter's `parse()` normalises Hammer's reply before returning.
+
+`MODELS` in `voice-llm.js`: `hammer2.1-1.5b` (default, `format: 'hammer'`) and
+`qwen2.5-3b` (`format: 'chatml'`, kept as an Apache-licensed alternate). The old
+`qwen2.5-1.5b` entry was dropped — Hammer strictly dominates it.
+
+### Fallbacks if the license ever matters
+
+**Qwen3-1.7B** (Apache-2.0, same ChatML family, run with thinking disabled),
+**LFM2.5-1.2B-Instruct** (BFCLv3 49). Sub-1B models reliably fail multi-turn / nested tool
+calls — don't bother.
 
 ---
 
