@@ -3,7 +3,7 @@ import { api } from '../lib/api.js'
 import { localTZ } from '../lib/format.js'
 import { registerCustom } from '../lib/exercises.js'
 import { DEMO, DEMO_SEEDED } from '../lib/demo.js'
-import { MOBILE, nativeLoad, nativeSave, syncReminder } from '../lib/mobile.js'
+import { MOBILE, nativeLoad, nativeSave, syncReminder, checkpointSave, checkpointLoad } from '../lib/mobile.js'
 
 const KEY = 'gym_state_v1'
 export const DEF = {
@@ -32,12 +32,18 @@ const hasData = st => !!((st.workouts || []).length || (st.routines || []).lengt
 export const useStore = create((set, get) => {
   let pushTm = null
   let saveTm = null
+  let ckptTm = null
 
   // Mobile build: mirror the state into a file in the app's data directory (survives WebView
   // storage eviction) and keep the native reminder schedule in step with the weekly plan.
+  // A slower second write drops a checkpoint into shared Documents — see mobile.js; it's the
+  // copy that outlives an uninstall/reinstall. Debounced longer since it's the durable
+  // backstop, not the hot path, and touches MediaStore.
   const nativePersist = () => {
     clearTimeout(saveTm)
     saveTm = setTimeout(() => { saveTm = null; nativeSave(get().S); syncReminder(get().S) }, 800)
+    clearTimeout(ckptTm)
+    ckptTm = setTimeout(() => { ckptTm = null; checkpointSave(get().S) }, 8000)
   }
 
   const persist = (S, push = true) => {
@@ -62,6 +68,11 @@ export const useStore = create((set, get) => {
       clearTimeout(saveTm)
       saveTm = null
       nativeSave(get().S)
+    }
+    if (MOBILE && ckptTm) {
+      clearTimeout(ckptTm)
+      ckptTm = null
+      checkpointSave(get().S)
     }
     if (pushTm) {
       clearTimeout(pushTm)
@@ -90,7 +101,10 @@ export const useStore = create((set, get) => {
       mut(S)
       persist(S, push)
     },
-    replaceState(S, push = false) { persist(clone(S), push) },
+    // Import / "Reset everything" — a deliberate whole-state swap. Push the durable checkpoint
+    // straight away rather than on the 8 s debounce, so quitting right after doesn't leave the
+    // next launch restoring the state that was just replaced.
+    replaceState(S, push = false) { persist(clone(S), push); if (MOBILE) checkpointSave(get().S) },
 
     isGuest: () => localStorage.getItem('gym_guest') === '1',
     setGuest(v) { if (v) localStorage.setItem('gym_guest', '1'); else localStorage.removeItem('gym_guest'); set({}) },
@@ -157,6 +171,18 @@ export const useStore = create((set, get) => {
         } else if (hasData(S)) {
           nativeSave(S)   // first run after an update from a file-less version: seed the mirror
         }
+        // Fresh install or a wiped data dir — nothing in localStorage or the Data mirror.
+        // Pull the training log back from the shared-Documents checkpoint if one is there.
+        // Guarded on hasData, so a live log is never overwritten.
+        if (!hasData(get().S)) {
+          const ckpt = await checkpointLoad()
+          if (ckpt && hasData(Object.assign(clone(DEF), ckpt))) {
+            persist(Object.assign(clone(DEF), ckpt), false)
+          }
+        }
+        // Make sure a checkpoint exists the moment there's something to lose — covers the
+        // first launch after updating from a build that never wrote one.
+        if (hasData(get().S)) checkpointSave(get().S)
         get().setGuest(true)
         syncReminder(get().S)
         set({ ready: true })

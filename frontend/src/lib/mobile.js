@@ -30,6 +30,41 @@ export async function nativeSave(state) {
   } catch (e) { /* keep the localStorage copy */ }
 }
 
+// A second, sturdier copy of the state in the shared Documents directory. The Directory.Data
+// mirror above is wiped whenever the app is uninstalled (a signing-key change forces that)
+// or the WebView's data is cleared on an OS update — the failure modes that have actually
+// lost a training log. Documents survives both. boot() falls back to CHECKPOINT (then its
+// one-generation-old CHECKPOINT_PREV) only when localStorage and the Data mirror both come
+// up empty, so it can never clobber a live log — it just refills a blank install.
+const CHECKPOINT = 'opengym-checkpoint.json'
+const CHECKPOINT_PREV = 'opengym-checkpoint-prev.json'
+
+export async function checkpointSave(state) {
+  try {
+    const { Filesystem, Directory, Encoding } = await import('@capacitor/filesystem')
+    const opt = { directory: Directory.Documents, encoding: Encoding.UTF8 }
+    // rotate the current checkpoint to -prev first, so a truncated write is never the only copy
+    try {
+      const cur = await Filesystem.readFile({ path: CHECKPOINT, ...opt })
+      await Filesystem.writeFile({ path: CHECKPOINT_PREV, data: cur.data, ...opt })
+    } catch (e) { /* first checkpoint — nothing to rotate */ }
+    await Filesystem.writeFile({ path: CHECKPOINT, data: JSON.stringify(state), ...opt })
+    return true
+  } catch (e) { return false }
+}
+
+export async function checkpointLoad() {
+  const read = async name => {
+    try {
+      const { Filesystem, Directory, Encoding } = await import('@capacitor/filesystem')
+      const r = await Filesystem.readFile({ path: name, directory: Directory.Documents, encoding: Encoding.UTF8 })
+      const s = JSON.parse(r.data)
+      return s && typeof s === 'object' ? s : null
+    } catch (e) { return null }
+  }
+  return (await read(CHECKPOINT)) || (await read(CHECKPOINT_PREV))
+}
+
 // (Re)schedule the workout-day reminder: one repeating notification per weekday that has a
 // routine in the weekly plan. Cheap enough to run after any state change — the plan or the
 // reminder time may just have been edited. `interactive` gates the OS permission prompt to
