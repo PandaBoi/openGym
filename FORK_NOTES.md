@@ -75,12 +75,32 @@ Bump all three in step, then `assembleRelease`:
 - `frontend/android/app/build.gradle` — `versionCode` (must strictly increase), `versionName`
 - `frontend/package.json` — `version`
 
+## Voice assistant (branch `voice-m3`)
+
+On-device push-to-talk. Pipeline:
+`mic button → speech-to-text → intent → workout action → spoken reply`, no network.
+
+- Native: `android/app/src/main/java/ch/duartesantos/opengym/voice/VoiceAssistantPlugin.kt`
+  — `SpeechRecognizer` (EXTRA_PREFER_OFFLINE) + `TextToSpeech`. Registered in `MainActivity`.
+- JS: `src/lib/voice.js` (bridge + browser fallback), `src/lib/voice-intents.js` (grammar),
+  `src/lib/voice-agent.js` (executes intents on the stores), `src/components/VoiceButton.jsx`
+  (mic FAB, shown during an active workout).
+- Grammar today: log set · set weight/reps · add/remove set · next/prev exercise ·
+  start/skip rest · what's my target · last time · how many sets · finish workout.
+- **3b** (next): swap `SpeechRecognizer` for bundled **whisper.cpp** (NDK 27 + CMake 3.22.1
+  already installed via `sdkmanager`) so offline STT is guaranteed on every device.
+- **4**: swap the grammar for an on-device **llama.cpp** agent loop (Qwen2.5-1.5B-Instruct
+  GGUF); `voice-agent.js` becomes its tool layer.
+
+Test the loop on desktop: `npm run test` covers the grammar + dispatcher; the button also
+works in a normal browser dev build using the Web Speech API.
+
 ## Roadmap
 
-See `~/.claude/plans/fancy-spinning-pond.md` for the full plan. Next:
+See `~/.claude/plans/fancy-spinning-pond.md` for the full plan.
 
-- **Milestone 1 remainder**: install on both phones; export FitNotes CSV
-  (`FitNotes → Settings → Export Data → CSV`), import via `Settings → Import from another app`.
-- **Milestone 2**: turn the 2-month training plan into routines + weekly schedule.
-- **Milestone 3+**: native Capacitor voice plugin (whisper.cpp STT, Android TTS), then
-  on-device llama.cpp agent loop with tool calls into the workout store.
+- **M1** done — personal signed APK.
+- **M2** done — combined FitNotes+plan backups generated (not in the repo; regenerate with
+  the scratchpad script). His and Bindu's both built.
+- **M3** done (this branch) — voice bring-up with on-device SpeechRecognizer + TTS.
+- **M3b / M4** — whisper.cpp, then the local LLM agent loop.
