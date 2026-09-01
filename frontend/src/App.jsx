@@ -14,6 +14,7 @@ import ErrorBoundary from './components/ErrorBoundary.jsx'
 import Modals from './components/Modals.jsx'
 import Toast from './components/Toast.jsx'
 import RestTimer from './components/RestTimer.jsx'
+import VoiceButton from './components/VoiceButton.jsx'
 import Login from './views/Login.jsx'
 import Home from './views/Home.jsx'
 import Plan from './views/Plan.jsx'
@@ -83,6 +84,7 @@ function Shell() {
       </div>
       <TabBar onStart={startFlow} />
       <RestTimer />
+      <VoiceButton />
       <Modals />
       <Toast />
     </>
