@@ -142,6 +142,8 @@ export default function Settings() {
 
     {(user || MOBILE) && <NotificationsCard S={S} update={update} toast={toast} />}
 
+    {MOBILE && <VoiceAssistantCard toast={toast} />}
+
     {/* ---------- appearance ---------- */}
     <Section title={t('Appearance')} footer={DEMO || MOBILE ? undefined : t('synced with your profile')}>
       <Row icon="moon" iconTint="var(--indigo)" title={t('Theme')}>
@@ -235,6 +237,107 @@ function effortHelpSheet() {
     </div>
     <div style={{ height: 8 }} />
   </>)
+}
+
+// On-device voice assistant — model download / enable (native build only).
+export const VOICE_MODEL_KEY = 'voice.model'
+export const VOICE_ENABLED_KEY = 'voice.enabled'
+
+function VoiceAssistantCard({ toast }) {
+  const [avail, setAvail] = useState(null)          // null checking | false | true
+  const [modelKey, setModelKey] = useState(() => localStorage.getItem(VOICE_MODEL_KEY) || 'qwen2.5-3b')
+  const [st, setSt] = useState(null)               // { exists, bytes } for modelKey
+  const [pct, setPct] = useState(null)             // download %
+  const [busy, setBusy] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+  const [models, setModels] = useState(null)
+
+  const refresh = async key => {
+    const { voiceLlm } = await import('../lib/voice-llm.js')
+    setSt(await voiceLlm.modelState(key))
+    setLoaded(await voiceLlm.isLoaded())
+  }
+  useEffect(() => {
+    let ok = true
+    ;(async () => {
+      const { voiceLlm, MODELS } = await import('../lib/voice-llm.js')
+      const a = await voiceLlm.available()
+      if (!ok) return
+      setAvail(a); setModels(MODELS)
+      if (a) refresh(modelKey)
+    })()
+    return () => { ok = false }
+  }, [])   // eslint-disable-line
+
+  const pickModel = async k => {
+    setModelKey(k); localStorage.setItem(VOICE_MODEL_KEY, k); setPct(null); await refresh(k)
+  }
+  const download = async () => {
+    setBusy(true); setPct(0)
+    try {
+      const { voiceLlm } = await import('../lib/voice-llm.js')
+      await voiceLlm.download(modelKey, p => setPct(p.pct))
+      toast(t('Model downloaded'))
+      await refresh(modelKey)
+    } catch (e) { toast(t('Download failed: {0}', e.message || e)) }
+    finally { setBusy(false); setPct(null) }
+  }
+  const enable = async () => {
+    setBusy(true)
+    try {
+      const { voiceLlm } = await import('../lib/voice-llm.js')
+      await voiceLlm.load(modelKey)
+      localStorage.setItem(VOICE_ENABLED_KEY, '1')
+      setLoaded(true); toast(t('Voice assistant on'))
+    } catch (e) { toast(t('Couldn’t load model: {0}', e.message || e)) }
+    finally { setBusy(false) }
+  }
+  const disable = async () => {
+    const { voiceLlm } = await import('../lib/voice-llm.js')
+    await voiceLlm.unload(); localStorage.removeItem(VOICE_ENABLED_KEY); setLoaded(false)
+  }
+  const remove = async () => {
+    const { voiceLlm } = await import('../lib/voice-llm.js')
+    await voiceLlm.unload(); await voiceLlm.deleteModel(modelKey)
+    localStorage.removeItem(VOICE_ENABLED_KEY); setLoaded(false); await refresh(modelKey)
+  }
+
+  if (avail === false) return (
+    <Section title={t('Voice assistant')}>
+      <Row icon="mic" iconTint="var(--grey)" title={t('Not available on this device')}
+        subtitle={t('The push-to-talk commands still work without it.')} />
+    </Section>
+  )
+  if (avail == null || !models) return null
+
+  const gb = st?.bytes ? (st.bytes / 1e9).toFixed(1) + ' GB' : ''
+  return (
+    <Section title={t('Voice assistant')} footer={t('A small language model runs on the phone so you can talk to your workout naturally. Nothing leaves the device.')}>
+      <Row icon="sparkles" iconTint="var(--acc)" title={t('Model')}>
+        <Segmented className="seg-inline"
+          value={modelKey}
+          onChange={pickModel}
+          options={Object.entries(models).map(([k, m]) => ({ value: k, label: k === 'qwen2.5-3b' ? t('Smart') : t('Fast') }))} />
+      </Row>
+      {busy && pct != null
+        ? <Row icon="download" iconTint="var(--blue)" title={t('Downloading… {0}%', pct)}
+            subtitle={models[modelKey].label} />
+        : !st?.exists
+          ? <Row icon="download" iconTint="var(--blue)" title={t('Download {0}', models[modelKey].label)}
+              subtitle={t('One time, over Wi-Fi recommended')} accessory="chevron" onClick={download} />
+          : loaded
+            ? <>
+                <Row icon="check" iconTint="var(--acc)" title={t('On — {0}', models[modelKey].label)} subtitle={gb} />
+                <Row icon="bolt" iconTint="var(--orange)" title={t('Turn off')} accessory="chevron" onClick={disable} />
+              </>
+            : <>
+                <Row icon="play" iconTint="var(--acc)" title={t('Turn on voice assistant')} subtitle={gb} accessory="chevron" onClick={enable} />
+              </>}
+      {st?.exists && !busy && (
+        <Row icon="trash" iconTint="var(--red)" title={t('Delete model download')} danger onClick={remove} />
+      )}
+    </Section>
+  )
 }
 
 function NotificationsCard({ S, update, toast }) {

@@ -1,17 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store/useStore.js'
+import { MOBILE } from '../lib/mobile.js'
 import { voice } from '../lib/voice.js'
 import { parseIntent } from '../lib/voice-intents.js'
 import { runIntent } from '../lib/voice-agent.js'
 import Icon from './Icon.jsx'
 
-// Milestone 3 push-to-talk button. Tap to start listening, tap again (or let the
-// recognizer settle) to act. Shows only during an active workout for now.
+// Push-to-talk button. Tap to listen, tap again (or let the recognizer settle) to act.
+// Shows only during an active workout.
 //
-//   tap → listen → transcript → parseIntent → runIntent → speak the reply
+//   tap → listen → transcript → { LLM agent if a model is loaded, else regex grammar }
+//        → run tools → speak the reply
 //
-// Everything on-device. Milestone 4 routes the transcript through a local LLM instead
-// of parseIntent; this component is unaffected.
+// Everything on-device, no network.
 
 const HINT = 'e.g. "log 8 reps at 60 kilos" · "next exercise" · "start rest" · "what\'s my target"'
 
@@ -41,8 +42,23 @@ export default function VoiceButton() {
   const handle = async raw => {
     setState('thinking')
     let reply
-    try { reply = runIntent(parseIntent(raw)) }
-    catch (e) { reply = 'Something went wrong doing that.'; console.error('[voice]', e) }
+    try {
+      let useLlm = false
+      if (MOBILE) {
+        const { voiceLlm } = await import('../lib/voice-llm.js')
+        useLlm = await voiceLlm.isLoaded()
+        if (useLlm) {
+          const { runAgent } = await import('../lib/voice-llm-agent.js')
+          flash(raw)   // show the transcript while the model thinks
+          const r = await runAgent(raw, voiceLlm.makeGenerate())
+          reply = r.speak
+        }
+      }
+      if (!useLlm) reply = runIntent(parseIntent(raw))
+    } catch (e) {
+      console.error('[voice] handle', e)
+      reply = 'Something went wrong doing that.'
+    }
     flash(reply, true)
     setState('idle')
     voice.speak(reply)

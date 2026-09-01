@@ -16,6 +16,9 @@ import com.getcapacitor.annotation.CapacitorPlugin
 import com.getcapacitor.annotation.Permission
 import com.getcapacitor.annotation.PermissionCallback
 import java.io.File
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Locale
 import java.util.concurrent.Executors
 
@@ -321,6 +324,92 @@ class VoiceAssistantPlugin : Plugin() {
         llmExec.execute {
             try { if (LlamaBridge.ensureLib()) LlamaBridge.nativeFree() } catch (_: Throwable) {}
             call.resolve()
+        }
+    }
+
+    // ---- model file management --------------------------------------------
+    // GGUF models are ~0.7–2 GB — far too big for the APK, so they download on first use
+    // into the app's private files dir. Streamed with resume; progress events to JS.
+
+    private val dlExec = Executors.newSingleThreadExecutor()
+    @Volatile private var cancelDl = false
+
+    private fun modelsDir(): File = File(context.filesDir, "models").apply { mkdirs() }
+
+    @PluginMethod
+    fun modelInfo(call: PluginCall) {
+        val name = call.getString("name") ?: run { call.reject("name required"); return }
+        val f = File(modelsDir(), name)
+        val part = File(modelsDir(), "$name.part")
+        call.resolve(JSObject()
+            .put("exists", f.exists())
+            .put("path", f.absolutePath)
+            .put("bytes", if (f.exists()) f.length() else 0L)
+            .put("partialBytes", if (part.exists()) part.length() else 0L))
+    }
+
+    @PluginMethod
+    fun deleteModel(call: PluginCall) {
+        val name = call.getString("name") ?: run { call.reject("name required"); return }
+        File(modelsDir(), name).delete()
+        File(modelsDir(), "$name.part").delete()
+        call.resolve()
+    }
+
+    @PluginMethod
+    fun cancelDownload(call: PluginCall) { cancelDl = true; call.resolve() }
+
+    @PluginMethod
+    fun downloadModel(call: PluginCall) {
+        val url = call.getString("url") ?: run { call.reject("url required"); return }
+        val name = call.getString("name") ?: run { call.reject("name required"); return }
+        val expectMin = call.getInt("minBytes") ?: 0
+        val dest = File(modelsDir(), name)
+        val part = File(modelsDir(), "$name.part")
+        if (dest.exists()) { call.resolve(JSObject().put("path", dest.absolutePath).put("bytes", dest.length())); return }
+        cancelDl = false
+        dlExec.execute {
+            try {
+                var have = if (part.exists()) part.length() else 0L
+                val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 20000; readTimeout = 30000
+                    instanceFollowRedirects = true
+                    setRequestProperty("User-Agent", "openGym-voice/1")
+                    if (have > 0) setRequestProperty("Range", "bytes=$have-")
+                }
+                val code = conn.responseCode
+                if (code == 200 && have > 0) { have = 0L; part.delete() }   // server ignored Range — restart
+                if (code != 200 && code != 206) { conn.disconnect(); call.reject("http $code"); return@execute }
+                val total = have + conn.contentLengthLong.coerceAtLeast(0L)
+
+                conn.inputStream.use { inp ->
+                    FileOutputStream(part, have > 0).use { out ->
+                        val buf = ByteArray(1 shl 16)
+                        var lastEmit = 0L
+                        while (true) {
+                            if (cancelDl) { conn.disconnect(); call.reject("cancelled"); return@execute }
+                            val n = inp.read(buf)
+                            if (n < 0) break
+                            out.write(buf, 0, n); have += n
+                            if (have - lastEmit >= 1_000_000L) {
+                                lastEmit = have
+                                notifyListeners("modelProgress", JSObject()
+                                    .put("name", name).put("received", have).put("total", total)
+                                    .put("pct", if (total > 0) (have * 100 / total).toInt() else 0))
+                            }
+                        }
+                    }
+                }
+                conn.disconnect()
+                if (expectMin in 1..Int.MAX_VALUE && part.length() < expectMin) {
+                    part.delete(); call.reject("download too small (${part.length()} bytes)"); return@execute
+                }
+                if (!part.renameTo(dest)) { call.reject("rename failed"); return@execute }
+                notifyListeners("modelProgress", JSObject().put("name", name).put("received", dest.length()).put("total", dest.length()).put("pct", 100))
+                call.resolve(JSObject().put("path", dest.absolutePath).put("bytes", dest.length()))
+            } catch (e: Exception) {
+                call.reject("download failed: ${e.message}")
+            }
         }
     }
 }

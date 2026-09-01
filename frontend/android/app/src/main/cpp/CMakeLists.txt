@@ -16,7 +16,11 @@ set(GGML_NATIVE          OFF CACHE BOOL "" FORCE)   # cross-compile: don't probe
 set(GGML_LLAMAFILE       OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS    OFF CACHE BOOL "" FORCE)
 
+# Android 15 requires 16 KB-aligned ELF segments for native libraries.
+add_link_options("-Wl,-z,max-page-size=16384" "-Wl,-z,common-page-size=16384")
+
 add_subdirectory(llama.cpp)
 
 add_library(voicellm SHARED voicellm.cpp)
 target_link_libraries(voicellm PRIVATE llama ggml android log)
+target_link_options(voicellm PRIVATE "-Wl,-z,max-page-size=16384" "-Wl,-z,common-page-size=16384")
