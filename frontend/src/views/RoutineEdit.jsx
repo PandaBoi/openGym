@@ -4,7 +4,7 @@ import { useStore } from '../store/useStore.js'
 import { exOr } from '../lib/exercises.js'
 import { uid } from '../lib/format.js'
 import { t } from '../lib/i18n.js'
-import { supersetUnits, cleanupSg, exLine } from '../lib/history.js'
+import { supersetUnits, cleanupSg, cleanupCg, circuitOf, exLine } from '../lib/history.js'
 import { Thumb } from '../components/Media.jsx'
 import { glyphPicker, exercisePicker, exConfigSheet, confirmSheet } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
@@ -23,15 +23,35 @@ export default function RoutineEdit() {
   useEffect(() => { if (!r) nav('/plan') }, [!!r])
   if (!r) return null
 
-  const edit = fn => update(s => { fn(s.routines.find(x => x.id === id).ex) })
-  const move = (i, dir) => edit(ex => { const j = i + dir; if (j < 0 || j >= ex.length) return;[ex[i], ex[j]] = [ex[j], ex[i]]; cleanupSg(ex) })
+  // Mutate the routine itself (for cg), or just its ex list (edit). Both prune orphan
+  // superset ids and the circuit meta that hangs off them.
+  const editR = fn => update(s => { const rr = s.routines.find(x => x.id === id); fn(rr); cleanupSg(rr.ex); cleanupCg(rr) })
+  const edit = fn => editR(rr => fn(rr.ex))
+  const move = (i, dir) => edit(ex => { const j = i + dir; if (j < 0 || j >= ex.length) return;[ex[i], ex[j]] = [ex[j], ex[i]] })
   const toggleLink = i => edit(ex => {
     if (i < 1) return
     const cur = ex[i], prev = ex[i - 1]
     if (cur.sg && prev.sg && cur.sg === prev.sg) delete cur.sg
     else { const gid = prev.sg || ('sg' + uid()); prev.sg = gid; cur.sg = gid }
-    cleanupSg(ex)
   })
+  // Turn a linked group into a circuit (fixed rounds, no progression) or back into a plain
+  // superset. Members' `sets` track the round count so the one-line summary stays honest.
+  const toggleCircuit = (sg, members) => editR(rr => {
+    rr.cg = rr.cg || {}
+    if (rr.cg[sg]) delete rr.cg[sg]
+    else {
+      const rounds = Math.max(2, ...members.map(m => rr.ex[m].sets || 0), 3)
+      rr.cg[sg] = { rounds, label: '' }
+      members.forEach(m => { rr.ex[m].sets = rounds })
+    }
+  })
+  const setRounds = (sg, members, n) => editR(rr => {
+    const rounds = Math.max(1, Math.min(12, n))
+    if (!rr.cg?.[sg]) return
+    rr.cg[sg].rounds = rounds
+    members.forEach(m => { rr.ex[m].sets = rounds })
+  })
+  const setCircuitLabel = (sg, v) => editR(rr => { if (rr.cg?.[sg]) rr.cg[sg].label = v.slice(0, 24) })
 
   const units = supersetUnits(r.ex)
   const unitFirst = new Set(units.filter(u => u.length > 1).map(u => u[0]))
@@ -61,10 +81,26 @@ export default function RoutineEdit() {
       // could neither see nor delete, but that still turned up in the workout.
       const ex = exOr(e.id)
       const linkedPrev = i > 0 && e.sg && r.ex[i - 1].sg === e.sg
+      const unit = unitFirst.has(i) ? units.find(u => u[0] === i) : null
+      const circ = unit && circuitOf(r, e.sg)
       return <div key={i}>
-        {unitFirst.has(i) && <div className="ss-label"><Icon name="link" />{t('Superset')}</div>}
+        {unit && <div className="ss-label" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <Icon name={circ ? 'reset' : 'link'} />{circ ? t('Circuit') : t('Superset')}
+          <button className={'iconbtn' + (circ ? ' on-ss' : '')}
+            style={{ marginLeft: 'auto', width: 'auto', height: 26, padding: '0 9px', borderRadius: 8, fontSize: 12, letterSpacing: 0, textTransform: 'none' }}
+            onClick={() => toggleCircuit(e.sg, unit)}>{circ ? t('Circuit') : t('Make circuit')}</button>
+          {circ && <div className="row" style={{ gap: 6, width: '100%', marginTop: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 'none' }}>
+              <button className="iconbtn" aria-label={t('Fewer rounds')} style={{ width: 26, height: 26, borderRadius: 7 }} onClick={() => setRounds(e.sg, unit, circ.rounds - 1)}><Icon name="minus" /></button>
+              <span style={{ minWidth: 58, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>{t('{0} rounds', circ.rounds)}</span>
+              <button className="iconbtn" aria-label={t('More rounds')} style={{ width: 26, height: 26, borderRadius: 7 }} onClick={() => setRounds(e.sg, unit, circ.rounds + 1)}><Icon name="plus" /></button>
+            </div>
+            <input className="input" style={{ flex: 1, minWidth: 90, height: 30, fontSize: 13 }} placeholder={t('Label (optional)')}
+              defaultValue={circ.label} onChange={ev => setCircuitLabel(e.sg, ev.target.value)} />
+          </div>}
+        </div>}
         <div className={'item' + (inSS.has(i) ? ' in-ss' : '')} onClick={() => {
-          exConfigSheet(ex, e, cfg => edit(x => { x[i] = { id: x[i].id, sg: x[i].sg, ...cfg } }), () => edit(x => { x.splice(i, 1); cleanupSg(x) }), r)
+          exConfigSheet(ex, e, cfg => edit(x => { x[i] = { id: x[i].id, sg: x[i].sg, ...cfg } }), () => edit(x => x.splice(i, 1)), r)
         }}>
           <Thumb ex={ex} />
           <div className="grow"><div className="tt capitalize">{ex.n}</div><div className="ss">{exLine(e, S.unit)}</div></div>

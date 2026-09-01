@@ -9,7 +9,7 @@
 //     a page break — each exercise, and each routine that fits, stays in one place.
 
 import { EXIDX, isBodyweightEq } from './exercises.js'
-import { modeOf, fmtSec, isBw, isPerSide, sideReps } from './history.js'
+import { modeOf, fmtSec, isBw, isPerSide, sideReps, cleanupCg } from './history.js'
 import { uid, todayISO, DAYN, fmtNum, exCount } from './format.js'
 import { t } from './i18n.js'
 
@@ -51,7 +51,9 @@ function cleanEx(e) {
 /** Build the shareable bundle: every routine, the week schedule, referenced customs. */
 export function buildPlanBundle(S, name) {
   const routines = (S.routines || []).map(r => ({
-    id: r.id, name: r.name, emoji: r.emoji, ...(r.prog ? { prog: r.prog } : {}), ex: (r.ex || []).map(cleanEx)
+    id: r.id, name: r.name, emoji: r.emoji, ...(r.prog ? { prog: r.prog } : {}),
+    ...(r.cg && Object.keys(r.cg).length ? { cg: r.cg } : {}),
+    ex: (r.ex || []).map(cleanEx)
   }))
   const usedIds = new Set(routines.flatMap(r => r.ex.map(e => e.id)))
   const customEx = (S.customEx || [])
@@ -120,13 +122,17 @@ export function mergePlan(s, bundle, { schedule } = {}) {
   bundle.routines.forEach(r => {
     const nid = uid()
     ridMap[r.id] = nid
-    s.routines.push({
+    const routine = {
       id: nid,
       name: r.name || t('Shared routine'),
       emoji: r.emoji,
       ...(r.prog ? { prog: r.prog } : {}),
+      ...(r.cg && typeof r.cg === 'object' ? { cg: JSON.parse(JSON.stringify(r.cg)) } : {}),
       ex: (r.ex || []).map(e => ({ ...e, id: exIdMap[e.id] || e.id }))
-    })
+    }
+    // A circuit whose members didn't all survive id-resolution is no longer a circuit.
+    if (routine.cg) cleanupCg(routine)
+    s.routines.push(routine)
   })
   if (schedule) {
     WEEK_ORDER.forEach(d => { delete s.week[d] })
@@ -176,9 +182,10 @@ function routineHTML(r, unit) {
       const part = ex && ex.bp && ex.bp !== 'cardio' ? `<span class="part">${esc(ex.bp)}</span>` : ''
       return `<div class="ex"><div class="ex-n">${esc(name)}${part}</div><div class="ex-s">${esc(scheme(e, unit))}</div></div>`
     }).join('')
-    return u.length > 1
-      ? `<div class="ss"><div class="ss-tag">${esc(t('Superset'))}</div><div class="ss-items">${items}</div></div>`
-      : items
+    if (u.length <= 1) return items
+    const circ = r.cg && r.cg[u[0].sg]
+    const tag = circ ? esc(circ.label ? `${circ.label} · ${t('{0} rounds', circ.rounds)}` : t('Circuit · {0} rounds', circ.rounds)) : esc(t('Superset'))
+    return `<div class="ss"><div class="ss-tag">${tag}</div><div class="ss-items">${items}</div></div>`
   }).join('')
   const count = exCount(r.ex.length)
   return `<section class="routine">

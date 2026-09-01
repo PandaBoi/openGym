@@ -829,12 +829,18 @@ export function beginWorkout(routineId, bw) {
   // The prescription is applied as the session is built, so you walk up to the bar with the
   // right weight already on the screen instead of being told about it afterwards. `plan` is
   // kept on the entry purely so the workout can explain the number it chose.
+  // Circuit members run for a fixed number of rounds with no progression — buildSets already
+  // makes `sets` (= rounds) rows because the editor keeps them in step; here we just make
+  // sure the progression engine leaves them alone.
+  const inCircuit = new Set(Object.keys(r?.cg || {}))
   const entries = (r ? r.ex : []).map(cfg => {
-    const plan = nextPrescription(st, cfg, r)
-    return { id: cfg.id, sg: cfg.sg, target: { ...cfg }, plan, sets: applyPrescription(buildSets(st, cfg), plan) }
+    const cfg2 = cfg.sg && inCircuit.has(cfg.sg) ? { ...cfg, prog: 'off' } : cfg
+    const plan = nextPrescription(st, cfg2, r)
+    return { id: cfg.id, sg: cfg.sg, target: { ...cfg }, plan, sets: applyPrescription(buildSets(st, cfg2), plan) }
   })
+  const cg = r?.cg ? JSON.parse(JSON.stringify(r.cg)) : undefined
   update(s => {
-    s.active = { id: uid(), d: todayISO(), start: Date.now(), routineId, name: r ? r.name : t('Freestyle'), bw: bw || null, cur: 0, entries }
+    s.active = { id: uid(), d: todayISO(), start: Date.now(), routineId, name: r ? r.name : t('Freestyle'), bw: bw || null, cur: 0, entries, ...(cg ? { cg } : {}) }
   })
   useUI.getState().stopRest()
   nav('/workout')

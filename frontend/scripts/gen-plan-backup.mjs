@@ -133,10 +133,11 @@ const day4 = R('Upper B', 'pullup', 'double', [
 ])
 
 /* ------------------------------------------------- E — finisher circuits ---- */
-// openGym has no circuit primitive, so each finisher is a superset (do back-to-back,
-// one rest after the last move) with sets = rounds and prog 'off' so it never feeds
-// progression. Limitation: rest between rounds falls back to the profile's restSec
-// (90s) — a shorter conditioning rest isn't expressible. Wk4/Wk8 skips: off-sheet.
+// Each finisher is a real circuit: a linked group with `cg[sg] = { rounds, label }` on the
+// routine, so the app runs it for a fixed round count (one set of each move per round, rest
+// after the round) and it never feeds progression. Rest between rounds is still the
+// profile's restSec (90s) — a shorter conditioning rest isn't in the model. Wk4/Wk8 skips:
+// off-sheet.
 const f1 = SG(), f2 = SG(), f3 = SG(), f4 = SG()
 const finOff = sg => ({ x: { sg, prog: 'off' } })
 const finOffBw = sg => ({ x: { sg, prog: 'off', bodyweight: true } })
@@ -167,6 +168,12 @@ day4.ex.push(
   time({ custom: ['Shuttle Sprint', 'cardio'] }, 4, 20, finOff(f4)),
   reps({ hist: ['Kb Swing', 'Kettlebell Swings'], lib: '0549' }, 4, 10, 0, finOff(f4)),
 )
+
+// Mark the four finisher groups as circuits (rounds match the `sets` count pushed above).
+day1.cg = { [f1]: { rounds: 4, label: 'Finisher' } }
+day2.cg = { [f2]: { rounds: 4, label: 'Finisher' } }
+day3.cg = { [f3]: { rounds: 3, label: 'Finisher' } }
+day4.cg = { [f4]: { rounds: 4, label: 'Finisher' } }
 
 // Upper first, then lower, alternating: Upper A (Mon), Lower A (Tue), Upper B (Thu), Lower B (Fri).
 S.routines = [day2, day1, day4, day3]

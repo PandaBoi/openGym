@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { exOr } from '../lib/exercises.js'
-import { effectiveRoutine, lastEntryFor, bestWeightFor, buildSets, setsDoneActive, supersetUnits, unitOf, setLabel, modeOf, isBw, isPerSide, sideReps, repStep, EFFORT, effortOf, stepEffort, capEffort } from '../lib/history.js'
+import { effectiveRoutine, lastEntryFor, bestWeightFor, buildSets, setsDoneActive, supersetUnits, unitOf, setLabel, modeOf, isBw, isPerSide, sideReps, repStep, EFFORT, effortOf, stepEffort, capEffort, circuitOf, circuitRound } from '../lib/history.js'
 import { fmtNum, fmtDate, todayISO, exCount, DAYN } from '../lib/format.js'
 import { beep, vibrate } from '../lib/sound.js'
 import { t } from '../lib/i18n.js'
@@ -54,7 +54,7 @@ function Elapsed({ start }) {
 }
 
 /* ---------- one exercise block (reps: weight×reps · time: a held duration · cardio: duration+speed) ---------- */
-function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemoveSet, onStartTimed }) {
+function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemoveSet, onStartTimed, hideSetButtons }) {
   const S = useStore(s => s.S)
   const working = useUI(s => s.work)
   const entry = S.active.entries[entryIdx]
@@ -142,11 +142,13 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
           onClick={() => onStartTimed(i)}><Icon name="play" /></button>}
         <Check checked={s.done} onChange={() => onToggle(i)} />
       </div>)}
-      <div style={{ height: 8 }} />
-      <div className="row">
-        <Button size="sm" icon="minus" disabled={entry.sets.length <= 1} onClick={onRemoveSet}>{t('Remove set')}</Button>
-        <Button size="sm" icon="plus" onClick={onAddSet}>{t('Add set')}</Button>
-      </div>
+      {!hideSetButtons && <>
+        <div style={{ height: 8 }} />
+        <div className="row">
+          <Button size="sm" icon="minus" disabled={entry.sets.length <= 1} onClick={onRemoveSet}>{t('Remove set')}</Button>
+          <Button size="sm" icon="plus" onClick={onAddSet}>{t('Add set')}</Button>
+        </div>
+      </>}
     </div>
   </>
 }
@@ -163,6 +165,8 @@ function ActiveWorkout() {
   const unit = A.entries.length ? unitOf(units, cur) : []
   const unitIdx = units.findIndex(u => u === unit)
   const isSuperset = unit.length > 1
+  const circ = isSuperset ? circuitOf(A, A.entries[unit[0]].sg) : null
+  const round = circ ? Math.min(circ.rounds, circuitRound(A.entries, unit)) : 0
 
   const total = A.entries.reduce((n, e) => n + e.sets.length, 0)
   const done = setsDoneActive(A)
@@ -182,6 +186,24 @@ function ActiveWorkout() {
     else e.sets.push({ w: l ? l.w : 0, r: l ? l.r : e.target.reps, done: false })
   })
   const removeSet = idx => mutEntry(idx, e => { if (e.sets.length > 1) e.sets.pop() })
+  // A circuit adds/drops a whole round — one set on every member — and keeps its round count
+  // in step so the "Round k / n" header stays right.
+  const bumpRound = dir => update(s => {
+    const ents = s.active.entries
+    const u = supersetUnits(ents).find(x => x.includes(Math.min(s.active.cur, ents.length - 1))) || []
+    u.forEach(i => {
+      const e = ents[i]
+      if (dir > 0) {
+        const l = e.sets[e.sets.length - 1]
+        const m = modeOf({ ...(e.target || {}), id: e.id })
+        if (m === 'cardio') e.sets.push({ min: l ? l.min : (e.target?.min || 20), speed: l ? l.speed : (e.target?.speed || 8), done: false })
+        else if (m === 'time') e.sets.push({ sec: l ? l.sec : (e.target?.sec || 45), w: l ? (l.w || 0) : (e.target?.weight || 0), done: false })
+        else e.sets.push({ w: l ? l.w : 0, r: l ? l.r : (e.target?.reps || 8), done: false })
+      } else if (e.sets.length > 1) e.sets.pop()
+    })
+    const sg = ents[u[0]]?.sg
+    if (s.active.cg?.[sg]) s.active.cg[sg].rounds = Math.max(1, s.active.cg[sg].rounds + dir)
+  }, true)
 
   // A timed set is held, not typed. The work timer records what was actually held — an early
   // finish logs 0:38 of a 0:45 target rather than crediting the full prescription — and then
@@ -212,7 +234,8 @@ function ActiveWorkout() {
         // Only loaded reps training has a "working weight" worth confirming — a bodyweight
         // plank has nothing to put in that slider, and neither does a set of push-ups
         // (issue #32: the fewest taps that still record what happened).
-        const loaded = m === 'reps' && !(isBw({ ...(e.target || {}), id: e.id }) && !e.sets.some(x => x.w > 0))
+        // A circuit is conditioning — no working weight to confirm, so skip that prompt.
+        const loaded = m === 'reps' && !circ && !(isBw({ ...(e.target || {}), id: e.id }) && !e.sets.some(x => x.w > 0))
         if (e.sets.every(x => x.done)) { exJustDone = true; if (loaded && !e.asked) { e.asked = true; askTop = true } }
       }
     })
@@ -260,15 +283,21 @@ function ActiveWorkout() {
     <div className="wprog"><i style={{ width: (total ? done / total * 100 : 0) + '%' }} /></div>
 
     {A.entries.length ? <>
-      <div className="muted small" style={{ marginBottom: 6 }}>{isSuperset ? t('Superset {0} / {1}', unitIdx + 1, units.length) : t('Exercise {0} / {1}', unitIdx + 1, units.length)}</div>
+      <div className="muted small" style={{ marginBottom: 6 }}>{circ ? t('Circuit {0} / {1}', unitIdx + 1, units.length) : isSuperset ? t('Superset {0} / {1}', unitIdx + 1, units.length) : t('Exercise {0} / {1}', unitIdx + 1, units.length)}</div>
       {isSuperset ? (
         <div className="ss-card">
-          <div className="ss-hd"><Icon name="link" />{t('Superset · do these back-to-back, rest after both')}</div>
+          <div className="ss-hd"><Icon name={circ ? 'reset' : 'link'} />{circ
+            ? (circ.label ? circ.label + ' · ' : '') + t('round {0} / {1} · one set of each, rest after the round', round, circ.rounds)
+            : t('Superset · do these back-to-back, rest after both')}</div>
           {unit.map((idx, k) => <div key={idx} className="ss-ex">
             {k > 0 && <div className="ss-amp">+</div>}
-            <ExerciseBlock entryIdx={idx} compact
+            <ExerciseBlock entryIdx={idx} compact hideSetButtons={!!circ}
               onToggle={i => toggle(idx, i)} onField={(i, f, v) => setField(idx, i, f, v)} onAddSet={() => addSet(idx)} onRemoveSet={() => removeSet(idx)} onStartTimed={i => startTimed(idx, i)} />
           </div>)}
+          {circ && <div className="row" style={{ marginTop: 4 }}>
+            <Button size="sm" icon="minus" disabled={circ.rounds <= 1} onClick={() => bumpRound(-1)}>{t('Remove round')}</Button>
+            <Button size="sm" icon="plus" onClick={() => bumpRound(1)}>{t('Add round')}</Button>
+          </div>}
         </div>
       ) : (
         <ExerciseBlock entryIdx={cur} onToggle={i => toggle(cur, i)} onField={(i, f, v) => setField(cur, i, f, v)} onAddSet={() => addSet(cur)} onRemoveSet={() => removeSet(cur)} onStartTimed={i => startTimed(cur, i)} />

@@ -138,6 +138,29 @@ export function cleanupSg(ex) {
   })
 }
 
+// A circuit is a superset group the plan runs for a fixed number of ROUNDS instead of
+// per-exercise sets: one set of each exercise per round, a rest after each round, no
+// progression (it's conditioning). Its meta rides on the container — a routine or the
+// active workout — keyed by the group's sg id: `container.cg[sg] = { rounds, label }`.
+// Absent cg reads as "plain superset", so every existing plan and workout is unchanged.
+export const circuitOf = (container, sg) => (sg && container && container.cg ? container.cg[sg] || null : null)
+// After an unlink / reorder / delete, drop circuit meta for any sg that is no longer a
+// real linked group. Call right after cleanupSg(container.ex).
+export function cleanupCg(container) {
+  if (!container || !container.cg) return
+  const list = container.ex || container.entries || []
+  const live = new Set()
+  list.forEach((e, i) => { if (e.sg && (list[i - 1]?.sg === e.sg || list[i + 1]?.sg === e.sg)) live.add(e.sg) })
+  Object.keys(container.cg).forEach(k => { if (!live.has(k)) delete container.cg[k] })
+  if (!Object.keys(container.cg).length) delete container.cg
+}
+// Which round a circuit unit is on (1-based), from how many sets each member has completed.
+// The round advances only once every member has logged its set for it.
+export function circuitRound(entries, unit) {
+  const perMember = unit.map(i => entries[i].sets.filter(s => s.done).length)
+  return Math.min(...perMember) + 1
+}
+
 export function lastEntryFor(S, exId) {
   for (let i = S.workouts.length - 1; i >= 0; i--) {
     const en = S.workouts[i].entries.find(e => e.id === exId)

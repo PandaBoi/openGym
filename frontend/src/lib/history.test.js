@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { modeOf, isTimed, fmtSec, setLabel, defaultConfig, buildSets, exLine, workoutVolume, effortOf, stepEffort, capEffort, isBw, isPerSide, sideReps, repStep } from './history.js'
+import { modeOf, isTimed, fmtSec, setLabel, defaultConfig, buildSets, exLine, workoutVolume, effortOf, stepEffort, capEffort, isBw, isPerSide, sideReps, repStep, circuitOf, cleanupCg, cleanupSg, circuitRound } from './history.js'
 import { EXDB } from './exercises.js'
 
 // Real ids out of the shipped catalogue, so the body-part fallback is exercised for real.
@@ -394,5 +394,39 @@ describe('workoutVolume', () => {
   it('leaves an unloaded bodyweight set at zero volume rather than inventing a number', () => {
     const w = { entries: [{ id: BW, target: { bodyweight: true }, sets: [{ w: 0, r: 20, done: true }] }] }
     expect(workoutVolume(w)).toBe(0)
+  })
+})
+
+describe('circuits', () => {
+  it('circuitOf reads meta off the container by sg id, and absent cg is a plain superset', () => {
+    const r = { cg: { sgA: { rounds: 4, label: 'Finisher' } } }
+    expect(circuitOf(r, 'sgA')).toEqual({ rounds: 4, label: 'Finisher' })
+    expect(circuitOf(r, 'sgB')).toBe(null)
+    expect(circuitOf({}, 'sgA')).toBe(null)
+    expect(circuitOf(null, 'sgA')).toBe(null)
+  })
+
+  it('cleanupCg drops meta once its group is no longer a linked pair', () => {
+    const r = { ex: [{ id: 'a', sg: 'g1' }, { id: 'b', sg: 'g1' }, { id: 'c', sg: 'g2' }], cg: { g1: { rounds: 3 }, g2: { rounds: 2 } } }
+    cleanupSg(r.ex)          // g2 has no partner → its sg is removed
+    cleanupCg(r)
+    expect(r.cg).toEqual({ g1: { rounds: 3 } })
+  })
+
+  it('cleanupCg removes the cg object entirely when nothing is left', () => {
+    const r = { ex: [{ id: 'a', sg: 'g1' }], cg: { g1: { rounds: 3 } } }
+    cleanupSg(r.ex)
+    cleanupCg(r)
+    expect(r.cg).toBeUndefined()
+  })
+
+  it('circuitRound advances only once every member has logged the round', () => {
+    const entries = [
+      { sets: [{ done: true }, { done: true }, { done: false }] },
+      { sets: [{ done: true }, { done: false }, { done: false }] },
+    ]
+    expect(circuitRound(entries, [0, 1])).toBe(2)   // member 1 still owes round 2
+    entries[1].sets[1].done = true
+    expect(circuitRound(entries, [0, 1])).toBe(3)
   })
 })
