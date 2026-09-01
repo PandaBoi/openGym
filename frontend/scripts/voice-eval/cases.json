@@ -1,0 +1,106 @@
+{
+  "$schema": "./cases.schema.md — see README",
+  "cases": [
+    { "id": "ws-count", "state": "base", "transcript": "how many exercises are in my workout",
+      "note": "answerable from the [state] snapshot, so no tool required",
+      "expect": { "say_matches": "\\b2\\b|two", "say_flags": "i" } },
+    { "id": "ws-progress", "state": "base", "transcript": "how much have I done and how much is left",
+      "expect": { "say_matches": "\\b2\\b|two", "say_not_matches": "8 sets|eight sets", "say_flags": "i" } },
+    { "id": "ws-current", "state": "base", "transcript": "what exercise am I on right now",
+      "expect": { "say_matches": "bench|press", "say_flags": "i" } },
+    { "id": "ws-elapsed", "state": "base", "transcript": "how long have I been training",
+      "expect": { "say_matches": "1[0-9]|20|minute|min", "say_flags": "i" } },
+    { "id": "ws-setsleft", "state": "base", "transcript": "how many sets do I have left on this exercise",
+      "expect": { "say_matches": "\\b[1-4]\\b|one|two|three|four", "say_flags": "i" } },
+
+    { "id": "sum-volume", "state": "base", "transcript": "what is my total volume so far today",
+      "expect": { "tool": "get_session_summary" } },
+    { "id": "sum-session", "state": "base", "transcript": "give me a summary of this session",
+      "expect": { "tool": "get_session_summary" } },
+
+    { "id": "hist-bench", "state": "base", "transcript": "how has my bench press been going lately",
+      "expect": { "tool": "get_exercise_history", "args": { "get_exercise_history": { "exercise": { "regex": "bench", "flags": "i" } } } } },
+    { "id": "hist-1rm", "state": "base", "transcript": "what is my best estimated one rep max on bench press",
+      "expect": { "tools": ["get_exercise_history"], "args": { "get_exercise_history": { "exercise": { "regex": "bench", "flags": "i" } } } } },
+    { "id": "hist-lastweek", "state": "base", "transcript": "what did I lift for bench press last time",
+      "expect": { "tool": "get_exercise_history", "args": { "get_exercise_history": { "exercise": { "regex": "bench", "flags": "i" } } } } },
+
+    { "id": "stats-month", "state": "base", "transcript": "how many workouts have I done this month",
+      "expect": { "tool": "get_stats" } },
+    { "id": "stats-streak", "state": "base", "transcript": "what is my weekly training streak",
+      "expect": { "tool": "get_stats" } },
+    { "id": "stats-week-vol", "state": "base", "transcript": "how much total volume did I lift this week",
+      "expect": { "tool": "get_stats", "args": { "get_stats": { "range": "week" } } } },
+    { "id": "stats-prs-year", "state": "base", "transcript": "did I set any personal records this year",
+      "expect": { "tool": "get_stats", "args": { "get_stats": { "range": "year" } } } },
+
+    { "id": "plan-week", "state": "base", "transcript": "what does my training plan look like this week",
+      "expect": { "tool": "get_plan" } },
+    { "id": "plan-friday", "state": "base", "transcript": "what am I training on friday",
+      "expect": { "tool": "get_plan" } },
+
+    { "id": "bw-current", "state": "base", "transcript": "what is my current body weight",
+      "expect": { "tool": "get_bodyweight", "say_matches": "78" } },
+    { "id": "bw-change", "state": "base", "transcript": "how much body weight have I lost recently",
+      "expect": { "tool": "get_bodyweight" } },
+
+    { "id": "log-explicit", "state": "base", "transcript": "log eight reps at seventy kilos",
+      "expect": { "tool": "log_set", "args": { "log_set": { "reps": 8, "weight": 70 } } } },
+    { "id": "log-bare", "state": "base", "transcript": "log this set",
+      "expect": { "tool": "log_set" } },
+    { "id": "log-reps-only", "state": "base", "transcript": "log ten reps",
+      "expect": { "tool": "log_set", "args": { "log_set": { "reps": 10 } } } },
+    { "id": "log-halfkilo", "state": "base", "transcript": "log six reps at seventy two and a half",
+      "expect": { "tool": "log_set", "args": { "log_set": { "reps": 6, "weight": 72.5 } } } },
+
+    { "id": "setw-1", "state": "base", "transcript": "change the weight on this set to seventy two point five",
+      "expect": { "tool": "set_weight", "args": { "set_weight": { "weight": 72.5 } } } },
+    { "id": "setw-2", "state": "base", "transcript": "set the weight to sixty five kilos",
+      "expect": { "tool": "set_weight", "args": { "set_weight": { "weight": 65 } } } },
+
+    { "id": "setr-1", "state": "base", "transcript": "make this set twelve reps",
+      "expect": { "tool": "set_reps", "args": { "set_reps": { "reps": 12 } } } },
+    { "id": "setr-2", "state": "base", "transcript": "set the rep target to six",
+      "expect": { "tool": "set_reps", "args": { "set_reps": { "reps": 6 } } } },
+
+    { "id": "add-1", "state": "base", "transcript": "add another set", "expect": { "tool": "add_set" } },
+    { "id": "add-2", "state": "base", "transcript": "give me one more set on this exercise", "expect": { "tool": "add_set" } },
+    { "id": "rem-1", "state": "base", "transcript": "remove the last set", "expect": { "tool": "remove_set" } },
+    { "id": "rem-2", "state": "base", "transcript": "drop a set from this exercise", "expect": { "tool": "remove_set" } },
+
+    { "id": "next-1", "state": "base", "transcript": "next exercise", "expect": { "tool": "next_exercise" } },
+    { "id": "next-2", "state": "base", "transcript": "okay move on to the next one", "expect": { "tool": "next_exercise" } },
+    { "id": "prev-1", "state": "base", "transcript": "go back to the previous exercise", "expect": { "tool": "prev_exercise" } },
+
+    { "id": "rest-start", "state": "base", "transcript": "start my rest timer", "expect": { "tool": "start_rest" } },
+    { "id": "rest-2min", "state": "base", "transcript": "rest for two minutes",
+      "expect": { "tool": "start_rest", "args": { "start_rest": { "seconds": 120 } } } },
+    { "id": "rest-skip", "state": "base", "transcript": "skip the rest", "expect": { "tool": "stop_rest" } },
+    { "id": "rest-stop", "state": "base", "transcript": "stop the timer", "expect": { "tool": "stop_rest" } },
+
+    { "id": "swap-1", "state": "base", "transcript": "swap this exercise for incline dumbbell press",
+      "expect": { "tool": "swap_exercise", "args": { "swap_exercise": { "to": { "regex": "incline", "flags": "i" } } } } },
+    { "id": "swap-2", "state": "base", "transcript": "replace this with dumbbell bench press",
+      "expect": { "tool": "swap_exercise", "args": { "swap_exercise": { "to": { "min_len": 3 } } } } },
+
+    { "id": "sbw-1", "state": "base", "transcript": "log my body weight at seventy eight kilos",
+      "expect": { "tool": "set_bodyweight", "args": { "set_bodyweight": { "weight": 78 } } } },
+    { "id": "sbw-2", "state": "base", "transcript": "I weigh seventy seven and a half today",
+      "expect": { "tool": "set_bodyweight", "args": { "set_bodyweight": { "weight": 77.5 } } } },
+
+    { "id": "fin-1", "state": "base", "transcript": "I'm done, save the workout", "expect": { "tool": "finish_workout" } },
+    { "id": "fin-2", "state": "base", "transcript": "end workout", "expect": { "tool": "finish_workout" } },
+
+    { "id": "idle-state", "state": "idle", "transcript": "am I in a workout right now",
+      "expect": { "tool": "get_workout_state", "say_matches": "no|not|isn|rest", "say_flags": "i" } },
+    { "id": "idle-plan", "state": "idle", "transcript": "what should I train today",
+      "expect": { "tool": "get_plan" } },
+
+    { "id": "gen-weather", "state": "base", "transcript": "what's the weather like outside",
+      "expect": { "no_tool": true } },
+    { "id": "gen-noise", "state": "base", "transcript": "uh, never mind",
+      "expect": { "no_tool": true } },
+    { "id": "gen-advice", "state": "base", "transcript": "should I go heavier on my next set",
+      "expect": { "answer_non_empty": true } }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "_comment": "Model registry for the voice benchmark. `path` may use ~ and $ENV. `format` is a key in formats.js (chatml | hammer | lfm2-tool). Add rows freely.",
+  "cache_dir": "~/Library/Caches/opengym-voice-evals",
+
+  "models": {
+    "qwen2.5-1.5b": {
+      "path": "{cache}/qwen2.5-1.5b-instruct-q4_0.gguf",
+      "format": "chatml",
+      "n_ctx": 2048,
+      "note": "current shipping 'Fast'. Apache-2.0.",
+      "download": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_0.gguf?download=true"
+    },
+    "qwen2.5-3b": {
+      "path": "{cache}/qwen2.5-3b-instruct-q4_0.gguf",
+      "format": "chatml",
+      "n_ctx": 2048,
+      "note": "current shipping 'Smart'. Apache-2.0. ~1.9GB — heavy for the S23+.",
+      "download": "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_0.gguf?download=true"
+    },
+    "hammer2.1-1.5b": {
+      "path": "{cache}/hammer2.1-1.5b-Q4_0.gguf",
+      "format": "hammer",
+      "n_ctx": 2048,
+      "note": "MadeAgents, Qwen2.5-Coder-1.5B + function masking. cc-by-nc-4.0 (personal use only).",
+      "download": "https://huggingface.co/Melvin56/Hammer2.1-1.5b-GGUF/resolve/main/hammer2.1-1.5b-Q4_0.gguf?download=true"
+    },
+    "lfm2-1.2b-tool": {
+      "path": "{cache}/LFM2-1.2B-Tool-Q4_0.gguf",
+      "format": "lfm2-tool",
+      "n_ctx": 2048,
+      "note": "Liquid AI, dedicated tool model. license lfm1.0.",
+      "download": "https://huggingface.co/LiquidAI/LFM2-1.2B-Tool-GGUF/resolve/main/LFM2-1.2B-Tool-Q4_0.gguf?download=true"
+    }
+  }
+}

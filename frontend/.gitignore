@@ -3,3 +3,6 @@ dist/
 .DS_Store
 *.local
 .vite/
+
+# voice-agent benchmark run artifacts
+scripts/voice-eval/results/
