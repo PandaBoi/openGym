@@ -95,6 +95,10 @@ On-device push-to-talk. Pipeline:
 Test the loop on desktop: `npm run test` covers the grammar + dispatcher; the button also
 works in a normal browser dev build using the Web Speech API.
 
+- **M4** (on-device LLM agent) built and running. Full architecture + the Android
+  performance tuning notes (ARM dotprod/i8mm, Q4_0, KV prefix reuse, thread count, …)
+  are in **`docs/VOICE_LLM.md`**.
+
 ## Roadmap
 
 See `~/.claude/plans/fancy-spinning-pond.md` for the full plan.
