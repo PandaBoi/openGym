@@ -9,8 +9,8 @@ import Icon from './Icon.jsx'
 // Push-to-talk button. Tap to listen, tap again (or let the recognizer settle) to act.
 // Shows only during an active workout.
 //
-//   tap → listen → transcript → { LLM agent if voice.enabled, else regex grammar }
-//        → run tools → speak the reply
+//   tap → listen → transcript → regex grammar; only what it can't place, and only when
+//        voice.enabled, goes to the on-device LLM agent → run tools → speak the reply
 //
 // Everything on-device, no network. With voice enabled, App.jsx loads the LLM model at
 // boot and keeps it resident for the session — the mic-press path below then just finds
@@ -97,8 +97,16 @@ export default function VoiceButton() {
     setState('thinking')
     let reply
     try {
-      let useLlm = false
-      if (llmEnabled()) {
+      // Deterministic fast path. A high-confidence spoken command — "log 8 at 60",
+      // "add 3 sets", "next exercise", "start rest", "what's my target" — is run straight
+      // off the grammar without waking the model: instant, no battery, and it can't misfire
+      // the way a 1.5B occasionally does. Only phrases the grammar can't place ('unknown')
+      // fall through to the LLM.
+      const parsed = parseIntent(raw)
+      if (parsed.intent !== 'unknown') {
+        console.log('[voice] grammar handled:', parsed.intent, JSON.stringify(parsed.args || {}))
+        reply = runIntent(parsed)
+      } else if (llmEnabled()) {
         clearTimeout(idleRef.current)   // in use — cancel any pending unload
         flash('One sec — starting the voice model…')
         const loaded = await ensureModel()
@@ -113,10 +121,9 @@ export default function VoiceButton() {
           ])
           console.log('[voice] runAgent done:', JSON.stringify(r).slice(0, 300))
           reply = r.speak
-          useLlm = true
         }
       }
-      if (!useLlm || !reply) reply = runIntent(parseIntent(raw))
+      if (!reply) reply = runIntent(parseIntent(raw))
     } catch (e) {
       console.error('[voice] handle', e && (e.message || e))
       reply = runIntent(parseIntent(raw))   // fall back to the grammar

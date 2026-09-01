@@ -19,8 +19,8 @@ export function runIntent({ intent, args = {} }) {
     case 'mark_done': return runTool('log_set', {}).message
     case 'set_weight': return runTool('set_weight', args).message
     case 'set_reps': return runTool('set_reps', args).message
-    case 'add_set': return runTool('add_set').message
-    case 'remove_set': return runTool('remove_set').message
+    case 'add_set': return runTool('add_set', args).message
+    case 'remove_set': return runTool('remove_set', args).message
     case 'next_exercise': return runTool('next_exercise').message
     case 'prev_exercise': return runTool('prev_exercise').message
     case 'start_rest': return runTool('start_rest', args).message

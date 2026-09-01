@@ -65,6 +65,20 @@ test('add / remove set', () => {
   expect(A().entries[0].sets.length).toBe(2)
 })
 
+test('add N sets in one go, copying the previous set', () => {
+  const msg = say('add 3 sets')
+  expect(A().entries[0].sets.length).toBe(5)
+  expect(A().entries[0].sets[4]).toMatchObject({ w: 40, r: 10, done: false })   // copied
+  expect(msg).toMatch(/added 3 sets/i)
+})
+
+test('remove N sets stops at one', () => {
+  say('add 3 sets')                       // 5 total
+  const msg = say('drop 10 sets')
+  expect(A().entries[0].sets.length).toBe(1)
+  expect(msg).toMatch(/removed 4 sets/i)
+})
+
 test('start / stop rest', () => {
   expect(say('rest two minutes')).toMatch(/120 seconds/)
   expect(useUI.getState().timer).toBeTruthy()

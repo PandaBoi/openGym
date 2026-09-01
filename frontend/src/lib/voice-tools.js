@@ -109,18 +109,25 @@ function setField(field, val, label) {
   return { ok: true, [label]: val, unit: field === 'w' ? unit() : undefined, message: `${titleCase(label)} set to ${fmtNum(val)}${field === 'w' ? ' ' + unit() : ''}.` }
 }
 
-function addRemoveSet(delta) {
+// count > 1 for "add three sets". A new set copies the previous one's numbers (newSetLike),
+// which is exactly what "add 4 sets, copy the previous" asks for.
+function addRemoveSet(delta, count = 1) {
   const c = ctx()
   if (!c) return noWorkout
   const idx = activeEntryIdx(c)
-  let n, changed = false
+  const want = Math.max(1, Math.min(20, Math.round(count) || 1))
+  let n, done = 0
   update(s => {
     const e = s.active.entries[idx]
-    if (delta > 0) { e.sets.push(newSetLike(e)); changed = true }
-    else if (e.sets.length > 1) { e.sets.pop(); changed = true }
+    for (let k = 0; k < want; k++) {
+      if (delta > 0) { e.sets.push(newSetLike(e)); done++ }
+      else if (e.sets.length > 1) { e.sets.pop(); done++ }
+    }
     n = e.sets.length
   })
-  return { ok: changed, sets: n, message: changed ? `${delta > 0 ? 'Added a set' : 'Removed a set'} — ${n} now.` : 'There is only one set.' }
+  if (!done) return { ok: false, sets: n, message: 'There is only one set.' }
+  const what = done === 1 ? 'a set' : `${done} sets`
+  return { ok: true, sets: n, message: `${delta > 0 ? 'Added' : 'Removed'} ${what} — ${n} now.` }
 }
 
 function move(dir) {
@@ -318,8 +325,8 @@ export const TOOLS = [
   { name: 'log_set', description: 'Log the current set. Give reps and weight, or reps alone for bodyweight, or seconds for a timed hold.', parameters: { type: 'object', properties: { reps: num('reps performed'), weight: num('weight in the user unit'), seconds: num('hold time for timed exercises') } }, run: log_set },
   { name: 'set_weight', description: 'Set the weight on the current set without logging it.', parameters: { type: 'object', properties: { weight: num('') }, required: ['weight'] }, run: a => setField('w', a.weight, 'weight') },
   { name: 'set_reps', description: 'Set the rep target on the current set without logging it.', parameters: { type: 'object', properties: { reps: num('') }, required: ['reps'] }, run: a => setField('r', a.reps, 'reps') },
-  { name: 'add_set', description: 'Add another set to the current exercise.', parameters: { type: 'object', properties: {} }, run: () => addRemoveSet(1) },
-  { name: 'remove_set', description: 'Remove the last set of the current exercise.', parameters: { type: 'object', properties: {} }, run: () => addRemoveSet(-1) },
+  { name: 'add_set', description: 'Add one or more sets to the current exercise (each copies the previous set).', parameters: { type: 'object', properties: { count: num('how many sets, default 1') } }, run: a => addRemoveSet(1, a?.count) },
+  { name: 'remove_set', description: 'Remove one or more sets from the end of the current exercise.', parameters: { type: 'object', properties: { count: num('how many sets, default 1') } }, run: a => addRemoveSet(-1, a?.count) },
   { name: 'next_exercise', description: 'Move to the next exercise / superset.', parameters: { type: 'object', properties: {} }, run: () => move(1) },
   { name: 'prev_exercise', description: 'Move to the previous exercise / superset.', parameters: { type: 'object', properties: {} }, run: () => move(-1) },
   { name: 'start_rest', description: 'Start the rest timer.', parameters: { type: 'object', properties: { seconds: num('default: the user setting') } }, run: start_rest },

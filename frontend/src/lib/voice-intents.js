@@ -132,8 +132,15 @@ const RULES = [
   { intent: 'set_weight', rx: re(`\\b(?:make it|use|change to)\\s*${NUM}\\s*(?:kg|kgs|kilos?|pounds?|lbs?)\\b`), take: m => ({ weight: parseNumber(m[1]) }) },
   { intent: 'set_reps', rx: re(`\\b(?:set|change|make|adjust)\\b.*\\breps?\\b.*?${NUM}`), take: m => ({ reps: parseNumber(m[1]) }) },
 
-  { intent: 'add_set', rx: /\b(add|another|one more)\b.*\bset\b|\badd a set\b/i },
-  { intent: 'remove_set', rx: /\b(remove|delete|drop|take off)\b.*\bset\b/i },
+  // "add a set", "add 3 sets", "add three more sets", "one more set", "copy the previous
+  // set", "same as last" — count defaults to 1; a new set copies the previous one's numbers
+  // (see newSetLike in voice-tools), which is what "copy previous" means at the rack.
+  { intent: 'add_set',
+    rx: re(`\\b(?:add|another|one more|copy)\\b(?:\\s+(?:the\\s+)?)?(?:${NUM}\\s+)?(?:more\\s+)?(?:(?:previous|last)\\s+)?sets?\\b|\\badd a set\\b|\\bsame as (?:the )?last\\b`),
+    take: m => { const n = m[1] ? parseNumber(m[1]) : null; return n > 1 ? { count: Math.min(20, Math.round(n)) } : {} } },
+  { intent: 'remove_set',
+    rx: re(`\\b(?:remove|delete|drop|take off)\\b\\s+(?:(?:a|the|last)\\s+)?(?:${NUM}\\s+)?(?:more\\s+|last\\s+)?sets?\\b`),
+    take: m => { const n = m[1] ? parseNumber(m[1]) : null; return n > 1 ? { count: Math.min(20, Math.round(n)) } : {} } },
 
   { intent: 'next_exercise', rx: /\b(next|move on|following)\b.*\bexercise\b|^\s*next\s*$|\bnext one\b|\bmove on\b/i },
   { intent: 'prev_exercise', rx: /\b(previous|last|go back|back to)\b.*\bexercise\b|^\s*(previous|back|go back)\s*$/i },
