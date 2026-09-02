@@ -6,3 +6,4 @@ dist/
 
 # voice-agent benchmark run artifacts
 scripts/voice-eval/results/
+public/_seed.json
