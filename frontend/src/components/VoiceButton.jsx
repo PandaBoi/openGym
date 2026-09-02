@@ -180,8 +180,12 @@ export default function VoiceButton() {
         .vb-fab{position:fixed;right:16px;bottom:calc(env(safe-area-inset-bottom,0px) + 84px);z-index:60;
           width:56px;height:56px;border-radius:50%;border:none;display:grid;place-items:center;
           background:var(--acc);color:#000;font-size:24px;cursor:pointer;
-          box-shadow:0 6px 20px rgba(0,0,0,.35);transition:transform .12s ease}
+          box-shadow:0 6px 20px rgba(0,0,0,.35);transition:transform .12s ease,bottom .2s ease}
         .vb-fab:active{transform:scale(.94)}
+        /* the rest/work timer bar takes the bottom of the screen — lift the FAB and its
+           bubble clear of it so the mic never sits on top of Skip */
+        body.resting .vb-fab{bottom:calc(env(safe-area-inset-bottom,0px) + 200px)}
+        body.resting .vb-bubble{bottom:calc(env(safe-area-inset-bottom,0px) + 208px)}
         .vb-fab.on{animation:vb-pulse 1.4s infinite;background:#ff4d4f;color:#fff}
         .vb-fab.busy{background:var(--card,#1c1c1e);color:var(--acc)}
         .vb-fab.busy::before{content:'';position:absolute;inset:-3px;border-radius:50%;
