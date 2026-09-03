@@ -6,7 +6,8 @@ import { uid } from '../lib/format.js'
 import { t } from '../lib/i18n.js'
 import { supersetUnits, cleanupSg, cleanupCg, circuitOf, exLine, defaultConfig } from '../lib/history.js'
 import { Thumb } from '../components/Media.jsx'
-import { glyphPicker, exercisePicker, exConfigSheet, confirmSheet } from '../sheets.jsx'
+import { glyphPicker, exercisePicker, exConfigSheet, confirmSheet, circuitPickSheet } from '../sheets.jsx'
+import { groupToCircuit, applyCircuitToRoutine, appendCircuitToRoutine } from '../lib/circuits.js'
 import Icon from '../components/Icon.jsx'
 import { glyphOf } from '../lib/glyphs.js'
 import { Button, SelectRow } from '../components/ui.jsx'
@@ -97,6 +98,12 @@ export default function RoutineEdit() {
     members.forEach(m => { rr.ex[m].sets = rounds })
   })
   const setCircuitLabel = (sg, v) => editR(rr => { if (rr.cg?.[sg]) rr.cg[sg].label = v.slice(0, 24) })
+  // Swap a whole circuit group for a saved one, or bank the current group as a new saved circuit.
+  const swapCircuit = (sg, members) => circuitPickSheet(
+    saved => editR(rr => applyCircuitToRoutine(rr, sg, saved)),
+    { title: t('Swap this circuit'), onSaveCurrent: () => update(s => { s.circuits.push(groupToCircuit(r, sg, members)) }) }
+  )
+  const addCircuit = () => circuitPickSheet(saved => editR(rr => appendCircuitToRoutine(rr, saved)), { title: t('Add a circuit') })
   // Replace the exercise at index i in place — same slot, same superset link, same set
   // count and progression rule — then open its config so the new movement's targets can be
   // dialled in. Beats delete-then-add-then-drag.
@@ -152,6 +159,9 @@ export default function RoutineEdit() {
             <input className="input" style={{ flex: 1, minWidth: 90, height: 30, fontSize: 13 }} placeholder={t('Label (optional)')}
               defaultValue={circ.label} onChange={ev => setCircuitLabel(e.sg, ev.target.value)} />
           </div>}
+          {circ && <button className="iconbtn"
+            style={{ width: 'auto', height: 26, padding: '0 9px', borderRadius: 8, fontSize: 12, letterSpacing: 0, textTransform: 'none', marginTop: 6 }}
+            onClick={() => swapCircuit(e.sg, unit)}><Icon name="reset" />{t('Swap circuit')}</button>}
         </div>}
         <div className={'item' + (inSS.has(i) ? ' in-ss' : '')} onClick={() => {
           exConfigSheet(ex, e, cfg => edit(x => { x[i] = { id: x[i].id, sg: x[i].sg, ...cfg } }), () => edit(x => x.splice(i, 1)), r, () => swapAt(i))
@@ -187,6 +197,8 @@ export default function RoutineEdit() {
 
     <div className="small dim row" style={{ margin: '10px 2px', gap: 5 }}><Icon name="link" style={{ fontSize: 13 }} />{t('Tap the link button to superset an exercise with the one above; drag the handle to reorder.')}</div>
     <Button variant="primary" onClick={() => exercisePicker(ex => exConfigSheet(ex, null, cfg => edit(x => { x.push({ id: ex.id, ...cfg }) }), null, r))} icon="plus">{t('Add exercise')}</Button>
+    <div style={{ height: 8 }} />
+    <Button icon="reset" onClick={addCircuit}>{t('Add a circuit')}</Button>
     <div style={{ height: 10 }} />
     <Button variant="danger" onClick={() => confirmSheet({
       title: t('Delete routine?'), message: t('“{0}” and its exercises will be removed.', r.name), confirmText: t('Delete'), danger: true,

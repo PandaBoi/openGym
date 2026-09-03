@@ -56,13 +56,18 @@ export function buildPlanBundle(S, name) {
     ...(r.cg && Object.keys(r.cg).length ? { cg: r.cg } : {}),
     ex: (r.ex || []).map(cleanEx)
   }))
-  const usedIds = new Set(routines.flatMap(r => r.ex.map(e => e.id)))
+  // Saved circuits referenced by a routine's circuit meta travel too, so "Swap circuit"
+  // has something to point at on the other end.
+  const usedCids = new Set(routines.flatMap(r => Object.values(r.cg || {}).map(g => g && g.cid).filter(Boolean)))
+  const circuits = (S.circuits || []).filter(c => usedCids.has(c.id))
+    .map(c => ({ id: c.id, label: c.label || '', rounds: c.rounds || 3, ex: (c.ex || []).map(cleanEx) }))
+  const usedIds = new Set([...routines.flatMap(r => r.ex.map(e => e.id)), ...circuits.flatMap(c => c.ex.map(e => e.id))])
   const customEx = (S.customEx || [])
     .filter(c => usedIds.has(c.id))
     .map(c => ({ id: c.id, n: c.n, bp: c.bp, ...(c.desc ? { desc: c.desc } : {}) }))
   const week = {}
   WEEK_ORDER.forEach(d => { if (S.week?.[d]) week[d] = S.week[d] })
-  return { opengym_plan: PLAN_FMT, exported: todayISO(), name: name || '', week, routines, customEx }
+  return { opengym_plan: PLAN_FMT, exported: todayISO(), name: name || '', week, routines, customEx, circuits }
 }
 
 /**
@@ -90,9 +95,14 @@ export function parsePlan(raw) {
       return ok
     })
   }))
+  const circuits = (Array.isArray(data.circuits) ? data.circuits : [])
+    .filter(c => c && c.id && Array.isArray(c.ex))
+    .map(c => ({ ...c, ex: c.ex.filter(e => e && (known.has(e.id) || !!EXIDX[e.id])) }))
+    .filter(c => c.ex.length)
   return {
     name: (data.name || '').trim(),
     routines,
+    circuits,
     week: data.week || {},
     customEx,
     dropped,
@@ -119,6 +129,17 @@ export function mergePlan(s, bundle, { schedule } = {}) {
     exIdMap[c.id] = nid
     s.customEx.push({ id: nid, n: c.n, bp: c.bp, ...(c.desc ? { desc: c.desc } : {}) })
   })
+  // Saved circuits first, so routine circuit meta can be remapped onto the fresh ids.
+  s.circuits = s.circuits || []
+  const cidMap = {}
+  ;(bundle.circuits || []).forEach(c => {
+    const nid = 'c' + uid()
+    cidMap[c.id] = nid
+    s.circuits.push({
+      id: nid, label: (c.label || '').slice(0, 24), rounds: Math.max(1, Math.min(12, c.rounds || 3)),
+      ex: (c.ex || []).map(e => ({ ...e, id: exIdMap[e.id] || e.id }))
+    })
+  })
   const ridMap = {}
   bundle.routines.forEach(r => {
     const nid = uid()
@@ -131,6 +152,11 @@ export function mergePlan(s, bundle, { schedule } = {}) {
       ...(r.cg && typeof r.cg === 'object' ? { cg: JSON.parse(JSON.stringify(r.cg)) } : {}),
       ex: (r.ex || []).map(e => ({ ...e, id: exIdMap[e.id] || e.id }))
     }
+    // Point circuit meta at the freshly-added saved circuits (or drop the link if it's dangling).
+    if (routine.cg) Object.values(routine.cg).forEach(g => {
+      if (!g || !g.cid) return
+      if (cidMap[g.cid]) g.cid = cidMap[g.cid]; else delete g.cid
+    })
     // A circuit whose members didn't all survive id-resolution is no longer a circuit.
     if (routine.cg) cleanupCg(routine)
     s.routines.push(routine)

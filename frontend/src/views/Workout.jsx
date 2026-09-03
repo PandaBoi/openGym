@@ -9,7 +9,7 @@ import { beep, vibrate } from '../lib/sound.js'
 import { t } from '../lib/i18n.js'
 import { api } from '../lib/api.js'
 import Media from '../components/Media.jsx'
-import { startFlow, exercisePicker, exConfigSheet, exerciseDetailSheet, topWeightSheet, finishWorkout, workoutCompleteSheet, confirmSheet } from '../sheets.jsx'
+import { startFlow, exercisePicker, exConfigSheet, exerciseDetailSheet, topWeightSheet, finishWorkout, workoutCompleteSheet, confirmSheet, circuitPickSheet } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
 import { Button, Check, NumberField } from '../components/ui.jsx'
 import { nextPrescription, applyPrescription } from '../lib/progression.js'
@@ -283,6 +283,31 @@ function ActiveWorkout() {
     delete e.asked
   }, true))
 
+  // Replace the whole current circuit with a saved one — same slot range and sg, fresh rows,
+  // no progression (it's a finisher). Confirms first if any of its sets are already logged.
+  const swapCircuitLive = () => {
+    const doIt = saved => update(s => {
+      const ents = s.active.entries
+      const u = supersetUnits(ents).find(x => x.includes(Math.min(s.active.cur, ents.length - 1))) || []
+      if (!u.length) return
+      const sg = ents[u[0]].sg
+      const at = u[0]
+      const built = saved.ex.map(e => {
+        const full = { ...e, sets: saved.rounds, prog: 'off' }
+        const plan = nextPrescription(s, full, null)
+        return { id: e.id, sg, target: { ...e, sets: saved.rounds }, plan, sets: applyPrescription(buildSets(s, full), plan) }
+      })
+      ents.splice(at, u.length, ...built)
+      s.active.cg = s.active.cg || {}
+      s.active.cg[sg] = { rounds: saved.rounds, label: saved.label, cid: saved.id }
+      s.active.cur = at
+    }, true)
+    const open = () => circuitPickSheet(doIt, { title: t('Swap this circuit') })
+    if (unit.some(i => A.entries[i].sets.some(x => x.done))) {
+      confirmSheet({ title: t('Swap this circuit?'), message: t('The sets you’ve logged in it will be replaced.'), confirmText: t('Swap'), danger: true, onConfirm: open })
+    } else open()
+  }
+
   // A timed set is held, not typed. The work timer records what was actually held — an early
   // finish logs 0:38 of a 0:45 target rather than crediting the full prescription — and then
   // checks the set off through the normal path, so rest, supersets and the finish prompt all
@@ -383,6 +408,7 @@ function ActiveWorkout() {
           {circ && <div className="row" style={{ marginTop: 10 }}>
             <Button size="sm" icon="minus" disabled={circ.rounds <= 1} onClick={() => bumpRound(-1)}>{t('Remove round')}</Button>
             <Button size="sm" icon="plus" onClick={() => bumpRound(1)}>{t('Add round')}</Button>
+            <Button size="sm" variant="ghost" icon="reset" style={{ marginLeft: 'auto' }} onClick={swapCircuitLive}>{t('Swap circuit')}</Button>
           </div>}
         </div>
       })() : (

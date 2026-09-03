@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from './store/useStore.js'
 import { useUI } from './store/useUI.js'
-import { EXDB, EXIDX, BODYPARTS, isCardio, isBodyweightEq, allExercises, equipmentOf } from './lib/exercises.js'
+import { EXDB, EXIDX, BODYPARTS, isCardio, isBodyweightEq, allExercises, equipmentOf, exOr } from './lib/exercises.js'
 import { fmtDate, fmtNum, fmtVol, fmtDur, durPart, todayISO, uid, exCount, DAYN, MONTHS_LONG, ACCENTS } from './lib/format.js'
 import { lastEntryFor, bestWeightFor, buildSets, effectiveRoutineId, workoutVolume, setsDone, setsDoneActive, lastBW, supersetUnits, unitOf, setLabel, defaultConfig, cleanupSg, modeOf, effortOf, isBw, isPerSide, sideReps } from './lib/history.js'
 import { beep, vibrate } from './lib/sound.js'
@@ -17,6 +17,7 @@ import BodyMap from './components/BodyMap.jsx'
 import { loadOfWorkouts } from './lib/muscles.js'
 import { parseImport, mergeImport } from './lib/import-csv.js'
 import { buildPlanBundle, parsePlan, mergePlan, printPlan } from './lib/plan-share.js'
+import { newCircuit, cleanCircuitEx, groupToCircuit } from './lib/circuits.js'
 import { estimate1RM, best1RM, is1RMRecord, REP_CAP } from './lib/onerm.js'
 import { nextPrescription, applyPrescription, policyFor, defaultIncrement, POLICIES_FOR, POLICY_NAME, POLICY_DESC, MAX_BW_SETS } from './lib/progression.js'
 import { MOBILE, shareExport } from './lib/mobile.js'
@@ -720,6 +721,92 @@ function PlanImport({ bundle, close }) {
   </>
 }
 
+/* ============================ saved circuits (finishers) ============================ */
+// A reusable finisher: label + rounds + a short exercise list, kept in S.circuits and
+// dropped into (or swapped into) any routine.
+export const circuitLibrarySheet = () => ui().openSheet(close => <CircuitLibrary close={close} />)
+
+function CircuitLibrary({ close }) {
+  const list = useStore(s => s.S.circuits) || []
+  const add = () => { const c = newCircuit(''); update(s => { s.circuits.push(c) }); circuitEditSheet(c.id) }
+  return <>
+    <div className="row between" style={{ marginBottom: 6 }}>
+      <h3 style={{ margin: 0 }}>{t('Circuits')}</h3>
+      <Button size="sm" variant="tinted" icon="plus" onClick={add}>{t('New')}</Button>
+    </div>
+    <div className="muted small" style={{ marginBottom: 14 }}>{t('Finishers you can drop into any routine, or swap in during a workout.')}</div>
+    {list.length ? <div className="list">{list.map(c => (
+      <div key={c.id} className="item" onClick={() => circuitEditSheet(c.id)}>
+        <span className="lrow-i"><Icon name="reset" /></span>
+        <div className="grow">
+          <div className="tt">{c.label || t('Untitled circuit')}</div>
+          <div className="ss">{t('{0} rounds', c.rounds)} · {exCount(c.ex.length)}</div>
+        </div>
+        <Icon name="chevronRight" className="chev" />
+      </div>
+    ))}</div> : <div className="empty"><div className="ico"><Icon name="reset" /></div>{t('No circuits yet.')}</div>}
+  </>
+}
+
+export const circuitEditSheet = id => ui().openSheet(close => <CircuitEdit id={id} close={close} />)
+
+function CircuitEdit({ id, close }) {
+  const c = (useStore(s => s.S.circuits) || []).find(x => x.id === id)
+  const editC = fn => update(s => { const cc = s.circuits.find(x => x.id === id); if (cc) fn(cc) })
+  if (!c) return <><h3>{t('Circuits')}</h3><div className="muted small">{t('This circuit was removed.')}</div></>
+  const addEx = () => exercisePicker(ex => exConfigSheet(ex, null, cfg => editC(cc => { cc.ex.push(cleanCircuitEx({ id: ex.id, ...cfg })) })))
+  return <>
+    <h3>{t('Edit circuit')}</h3>
+    <input className="input" style={{ fontWeight: 600, fontSize: 17, marginBottom: 12 }} placeholder={t('Label (e.g. Core finisher)')}
+      defaultValue={c.label} onChange={e => editC(cc => { cc.label = e.target.value.slice(0, 24) })} />
+    <div className="row cfgrow" style={{ marginBottom: 16 }}>
+      <Stepper label={t('Rounds')} value={c.rounds} step={1} decimal={false}
+        onChange={v => editC(cc => { cc.rounds = Math.max(1, Math.min(12, v)) })} />
+    </div>
+    {c.ex.length ? <div className="list">{c.ex.map((e, i) => {
+      const ex = exOr(e.id)
+      return <div key={i} className="item" onClick={() => exConfigSheet(ex, { ...e, sets: c.rounds }, cfg => editC(cc => { cc.ex[i] = cleanCircuitEx({ id: e.id, ...cfg }) }), () => editC(cc => cc.ex.splice(i, 1)))}>
+        <Thumb ex={ex} />
+        <div className="grow"><div className="tt capitalize">{ex.n}</div><div className="ss">{exLineLib(e)}</div></div>
+        <Icon name="chevronRight" className="chev" />
+      </div>
+    })}</div> : <div className="dim small" style={{ margin: '4px 2px 12px' }}>{t('No exercises yet.')}</div>}
+    <div style={{ height: 10 }} />
+    <Button icon="plus" onClick={addEx}>{t('Add exercise')}</Button>
+    <div style={{ height: 8 }} />
+    <Button variant="danger" onClick={() => { close(); update(s => { s.circuits = s.circuits.filter(x => x.id !== id) }) }}>{t('Delete circuit')}</Button>
+  </>
+}
+
+// Pick a saved circuit — for "swap circuit" (routine editor / mid-workout) and "add circuit".
+export const circuitPickSheet = (onPick, opts = {}) => ui().openSheet(close => <CircuitPick onPick={onPick} opts={opts} close={close} />)
+
+function CircuitPick({ onPick, opts, close }) {
+  const list = useStore(s => s.S.circuits) || []
+  return <>
+    <h3>{opts.title || t('Choose a circuit')}</h3>
+    {opts.onSaveCurrent && <>
+      <Button icon="bookmark" onClick={() => { close(); opts.onSaveCurrent() }}>{t('Save the current one as a circuit')}</Button>
+      <div style={{ height: 10 }} />
+    </>}
+    {list.length ? <div className="list">{list.map(c => (
+      <div key={c.id} className="item" onClick={() => { close(); onPick(c) }}>
+        <span className="lrow-i"><Icon name="reset" /></span>
+        <div className="grow"><div className="tt">{c.label || t('Untitled circuit')}</div>
+          <div className="ss">{t('{0} rounds', c.rounds)} · {c.ex.map(e => exOr(e.id).n).join(', ')}</div></div>
+      </div>
+    ))}</div> : <div className="empty"><div className="ico"><Icon name="reset" /></div>{t('No saved circuits yet — make one from the Plan screen.')}</div>}
+  </>
+}
+
+// A saved-circuit ex carries no `sets` — its own one-liner, since exLine expects one.
+const exLineLib = e => {
+  const m = modeOf(e)
+  if (m === 'time') return (e.weight ? fmtNum(e.weight) + ' ' + S().unit + ' · ' : '') + (e.sec || 0) + 's'
+  if (m === 'cardio') return (e.min || 0) + ' min'
+  return (e.weight ? fmtNum(e.weight) + ' ' + S().unit + ' × ' : '') + (e.reps || 0)
+}
+
 /* ============================ day override / assign ============================ */
 function DayOverride({ iso, close }) {
   const st = useStore(s => s.S)
@@ -977,6 +1064,8 @@ function doFinishWorkout() {
   })
   const w = {
     id: A.id, d: A.d, start: A.start, end: Date.now(), routineId: A.routineId, name: A.name, bw: A.bw,
+    // Circuit meta rides along so History can group finisher runs by which saved circuit they were.
+    ...(A.cg && Object.keys(A.cg).length ? { cg: JSON.parse(JSON.stringify(A.cg)) } : {}),
     // `target` (what the session prescribed) is kept alongside the sets: without it a
     // finished workout cannot say whether it hit its reps, and a timed session reads back
     // as "0 reps". It is what the progression engine works from.
