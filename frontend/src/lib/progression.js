@@ -103,7 +103,17 @@ export function readSession(entry, fallback) {
   const mode = modeOf({ ...target, id: entry && entry.id })
   // Warm-up rows (s.wu) never count toward progression — not the rep check, not the
   // set count, not the session weight. `target.sets` is the working-set count.
-  const sets = ((entry && entry.sets) || []).filter(s => !s.wu)
+  const raw = (entry && entry.sets) || []
+  let sets = raw.filter(s => !s.wu)
+  // History logged before warm-ups could be flagged (imported FitNotes, sessions from
+  // before warm-up support) has no per-session target and no wu marks, so a ramp-up set
+  // is scored like a working set and stacks up false stalls. Read it the way the plan
+  // would: keep only the last N sets as working (N = the exercise's current working-set
+  // count); the earlier ones were warm-ups. Only ever trims a longer session.
+  const workN = target.sets || 0
+  if (workN > 0 && sets.length > workN && !(entry && entry.target) && !raw.some(s => s.wu)) {
+    sets = sets.slice(-workN)
+  }
   const planned = target.sets || sets.length
   const enough = sets.length >= planned
 

@@ -69,6 +69,34 @@ describe('readSession', () => {
     expect(s.ok).toBe(false)   // only 2 working sets, target is 3
   })
 
+  it('reads pre-warm-up history as last-N working sets (N = current plan)', () => {
+    // No own target, no wu marks: a FitNotes-style ramp — 2 light sets then 3 at the goal.
+    const s = readSession({ id: LIFT, sets: [
+      { w: 30, r: 8, done: true }, { w: 45, r: 6, done: true },
+      { w: 60, r: 5, done: true }, { w: 60, r: 5, done: true }, { w: 60, r: 5, done: true }
+    ] }, T)
+    expect(s.ok).toBe(true)        // was false — the r:8 and r:6 ramp sets no longer count
+    expect(s.weight).toBe(60)
+    expect(s.low).toBe(5)
+  })
+
+  it('still fails pre-warm-up history when a working set is short', () => {
+    const s = readSession({ id: LIFT, sets: [
+      { w: 45, r: 8, done: true },
+      { w: 60, r: 5, done: true }, { w: 60, r: 5, done: true }, { w: 60, r: 3, done: true }
+    ] }, T)
+    expect(s.ok).toBe(false)
+  })
+
+  it('does not trim a session that carries its own target', () => {
+    // 5 genuine working sets, plan now asks 3 — an explicit target means trust the log.
+    const s = readSession({ id: LIFT, target: T, sets: [
+      { w: 60, r: 5, done: true }, { w: 60, r: 5, done: true }, { w: 60, r: 5, done: true },
+      { w: 60, r: 5, done: true }, { w: 60, r: 3, done: true }
+    ] })
+    expect(s.ok).toBe(false)
+  })
+
   it('reads a timed session by the hold, not by reps', () => {
     const s = readSession({ id: LIFT, target: { sets: 2, sec: 45, mode: 'time' }, sets: [{ sec: 45, w: 0, done: true }, { sec: 50, w: 0, done: true }] })
     expect(s.mode).toBe('time')
