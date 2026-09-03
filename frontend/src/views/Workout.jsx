@@ -203,6 +203,7 @@ function ActiveWorkout() {
   const update = useStore(s => s.update)
   const { startRest, stopRest } = useUI()
   const A = S.active
+  const perSet = S.setView !== 'full'   // Settings › During a workout › Set entry
   const units = supersetUnits(A.entries)
   const cur = Math.min(A.cur, Math.max(0, A.entries.length - 1))
   const unit = A.entries.length ? unitOf(units, cur) : []
@@ -364,7 +365,7 @@ function ActiveWorkout() {
               </button>
             })}
           </div>
-          <ExerciseBlock key={shown} entryIdx={shown} compact focus hideSetButtons={!!circ}
+          <ExerciseBlock key={shown} entryIdx={shown} compact focus={perSet} hideSetButtons={!!circ}
             onToggle={i => toggle(shown, i)} onField={(i, f, v) => setField(shown, i, f, v)} onAddSet={() => addSet(shown)} onRemoveSet={() => removeSet(shown)} onStartTimed={i => startTimed(shown, i)} onSwap={() => swapEntry(shown)} />
           {circ && <div className="row" style={{ marginTop: 10 }}>
             <Button size="sm" icon="minus" disabled={circ.rounds <= 1} onClick={() => bumpRound(-1)}>{t('Remove round')}</Button>
@@ -372,7 +373,7 @@ function ActiveWorkout() {
           </div>}
         </div>
       })() : (
-        <ExerciseBlock key={cur} entryIdx={cur} focus onToggle={i => toggle(cur, i)} onField={(i, f, v) => setField(cur, i, f, v)} onAddSet={() => addSet(cur)} onRemoveSet={() => removeSet(cur)} onStartTimed={i => startTimed(cur, i)} onSwap={() => swapEntry(cur)} />
+        <ExerciseBlock key={cur} entryIdx={cur} focus={perSet} onToggle={i => toggle(cur, i)} onField={(i, f, v) => setField(cur, i, f, v)} onAddSet={() => addSet(cur)} onRemoveSet={() => removeSet(cur)} onStartTimed={i => startTimed(cur, i)} onSwap={() => swapEntry(cur)} />
       )}
     </> : <div className="empty"><div className="ico"><Icon name="shuffle" /></div>{t('Freestyle workout — add your first exercise.')}</div>}
 

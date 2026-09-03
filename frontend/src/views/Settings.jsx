@@ -130,6 +130,14 @@ export default function Settings() {
       <Row icon="bell" iconTint="var(--pink)" title={t('Sounds')}>
         <Switch checked={!!S.sound} onChange={v => update(s => { s.sound = v })} />
       </Row>
+      {/* One set at a time with big fields, or the whole grid up front. Per-exercise
+          "All sets" / "Current set" toggles still override this during a workout. */}
+      <Row icon="list" iconTint="var(--blue)" title={t('Set entry')}>
+        <Segmented className="seg-inline"
+          options={[{ value: 'focus', label: t('One at a time') }, { value: 'full', label: t('Full grid') }]}
+          value={S.setView === 'full' ? 'full' : 'focus'}
+          onChange={v => update(s => { s.setView = v })} />
+      </Row>
       {/* Two names for the same judgement, so the column asks in the scale you already think in.
           The (i) sits before the control — you read it on the way to the choice, not after it. */}
       <Row icon="target" iconTint="var(--purple)" title={t('Effort per set')}>
