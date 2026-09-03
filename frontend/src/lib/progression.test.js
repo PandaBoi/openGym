@@ -51,6 +51,24 @@ describe('readSession', () => {
     expect(readSession({ id: LIFT, target: {}, sets: [{ w: 60, r: 5, done: true }] }).ok).toBe(false)
   })
 
+  it('ignores warm-up rows: a light opener below target does not fail the session', () => {
+    const s = readSession({ id: LIFT, target: T, sets: [
+      { w: 20, r: 10, done: true, wu: true },
+      { w: 40, r: 8, done: true, wu: true },
+      { w: 60, r: 5, done: true }, { w: 60, r: 5, done: true }, { w: 60, r: 5, done: true }
+    ] })
+    expect(s.ok).toBe(true)
+    expect(s.weight).toBe(60)   // warm-up weight is not the session weight
+  })
+
+  it('still needs the working-set count met once warm-ups are stripped', () => {
+    const s = readSession({ id: LIFT, target: T, sets: [
+      { w: 20, r: 10, done: true, wu: true },
+      { w: 60, r: 5, done: true }, { w: 60, r: 5, done: true }
+    ] })
+    expect(s.ok).toBe(false)   // only 2 working sets, target is 3
+  })
+
   it('reads a timed session by the hold, not by reps', () => {
     const s = readSession({ id: LIFT, target: { sets: 2, sec: 45, mode: 'time' }, sets: [{ sec: 45, w: 0, done: true }, { sec: 50, w: 0, done: true }] })
     expect(s.mode).toBe('time')

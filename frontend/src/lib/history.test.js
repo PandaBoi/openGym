@@ -374,6 +374,21 @@ describe('buildSets', () => {
     const S = { exWeights: { [LIFT]: { w: 75 } }, workouts: [{ d: '2026-01-01', entries: [{ id: LIFT, sets: [{ w: 60, r: 10, done: true }] }] }] }
     expect(buildSets(S, { id: LIFT, sets: 1, reps: 8, weight: 50 })).toEqual([{ w: 75, r: 10, done: false }])
   })
+
+  it('prepends warm-up rows tagged wu, on top of the working-set count', () => {
+    const sets = buildSets(emptyS, { id: LIFT, sets: 3, reps: 8, weight: 50, warmups: 2 })
+    expect(sets).toHaveLength(5)
+    expect(sets.filter(s => s.wu)).toHaveLength(2)
+    expect(sets.slice(0, 2).every(s => s.wu)).toBe(true)
+    expect(sets.slice(2).some(s => s.wu)).toBe(false)
+  })
+
+  it('tags warm-ups for timed sets too', () => {
+    const sets = buildSets(emptyS, { id: LIFT, mode: 'time', sets: 2, sec: 60, weight: 20, warmups: 1 })
+    expect(sets).toHaveLength(3)
+    expect(sets[0].wu).toBe(true)
+    expect(sets[1].wu).toBeUndefined()
+  })
 })
 
 describe('workoutVolume', () => {

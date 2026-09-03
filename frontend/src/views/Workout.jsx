@@ -57,7 +57,7 @@ function Elapsed({ start }) {
    `focus` mode logs one set at a time: finished sets collapse to a read-only strip, the set
    in front of you gets big fields and a full-width "Log set" button. "Show all sets" flips
    back to the full grid for anyone who plans the whole exercise up front. */
-function ExerciseBlock({ entryIdx, compact, focus, onToggle, onField, onAddSet, onRemoveSet, onStartTimed, onSwap, hideSetButtons }) {
+function ExerciseBlock({ entryIdx, compact, focus, onToggle, onField, onAddSet, onRemoveSet, onStartTimed, onSwap, onWarmup, hideSetButtons }) {
   const S = useStore(s => s.S)
   const working = useUI(s => s.work)
   const [showAll, setShowAll] = useState(false)
@@ -112,6 +112,10 @@ function ExerciseBlock({ entryIdx, compact, focus, onToggle, onField, onAddSet, 
       <button aria-label="Increase" onClick={() => bump(s, i, col, 1)}><Icon name="plus" /></button>
     </div>
   )
+  // Working-set numbering skips warm-ups: W, W, 1, 2, 3…
+  const wuBefore = i => entry.sets.slice(0, i).filter(x => x.wu).length
+  const setNum = i => (entry.sets[i].wu ? t('W') : i + 1 - wuBefore(i))
+  const workCount = entry.sets.length - entry.sets.filter(s => s.wu).length
   return <>
     <Media ex={ex} key={entry.id} compact={compact} minimizable />
     <div className="row between" style={{ marginBottom: 6 }}>
@@ -143,15 +147,18 @@ function ExerciseBlock({ entryIdx, compact, focus, onToggle, onField, onAddSet, 
         return <>
           {doneCount > 0 && <div className="setdone-list">
             {entry.sets.map((x, i) => x.done && (
-              <button key={i} className="setdone" onClick={() => onToggle(i)} title={t('Undo')}>
-                <span className="n">{i + 1}</span>
+              <button key={i} className={'setdone' + (x.wu ? ' wu' : '')} onClick={() => onToggle(i)} title={t('Undo')}>
+                <span className="n">{setNum(i)}</span>
                 <span className="lb">{setLabel(entry.id, x, entry.target)}</span>
                 <Icon name="check" />
               </button>
             ))}
           </div>}
           {s ? <>
-            <div className="setnow-hd">{t('Set {0} of {1}', curI + 1, entry.sets.length)}</div>
+            <div className="setnow-hd">
+              {s.wu ? t('Warm-up set') : t('Set {0} of {1}', curI + 1 - wuBefore(curI), workCount)}
+              {onWarmup && <button className="wu-tog" onClick={() => onWarmup(curI, !s.wu)}>{s.wu ? t('Working set') : t('Warm-up')}</button>}
+            </div>
             <div className="cfgrow setbig">
               <div className="stp-w"><span className="stp-l">{col1.hd}</span>{cell(s, curI, col1, 'w')}</div>
               {col2 && <div className="stp-w"><span className="stp-l">{col2.hd}</span>{cell(s, curI, col2, 'r')}</div>}
@@ -174,8 +181,11 @@ function ExerciseBlock({ entryIdx, compact, focus, onToggle, onField, onAddSet, 
       })() : <>
         {/* the header carries the same eff3 sizing as the rows, or the labels drift off their columns */}
         <div className={'sethead' + (col3 ? ' eff3' : '')}><span className="n-sp" /><span className="w-sp">{col1.hd}</span>{col2 && <span className="r-sp">{col2.hd}</span>}{col3 && <span className="eff-sp">{col3.hd}</span>}{timed && <span className="ck-sp" />}<span className="ck-sp" /></div>
-        {entry.sets.map((s, i) => <div key={i} className={'setrow' + (s.done ? ' done' : '') + (col3 ? ' eff3' : '')}>
-          <div className="n">{i + 1}</div>
+        {entry.sets.map((s, i) => <div key={i} className={'setrow' + (s.done ? ' done' : '') + (s.wu ? ' wu' : '') + (col3 ? ' eff3' : '')}>
+          {/* Tap the number to flip a row between warm-up and working. */}
+          {onWarmup
+            ? <button className="n" title={s.wu ? t('Make it a working set') : t('Make it a warm-up')} onClick={() => onWarmup(i, !s.wu)}>{setNum(i)}</button>
+            : <div className="n">{setNum(i)}</div>}
           {cell(s, i, col1, 'w')}
           {col2 && cell(s, i, col2, 'r')}
           {col3 && cell(s, i, col3, 'eff')}
@@ -238,6 +248,9 @@ function ActiveWorkout() {
     else e.sets.push({ w: l ? l.w : 0, r: l ? l.r : e.target.reps, done: false })
   })
   const removeSet = idx => mutEntry(idx, e => { if (e.sets.length > 1) e.sets.pop() })
+  // Flag a row as a warm-up (or clear it) by hand — progression skips warm-ups, so this is
+  // how you keep a light opener out of the stall/deload maths on an ad-hoc day.
+  const markWarmup = (idx, i, v) => mutEntry(idx, e => { if (v) e.sets[i].wu = true; else delete e.sets[i].wu })
   // A circuit adds/drops a whole round — one set on every member — and keeps its round count
   // in step so the "Round k / n" header stays right.
   const bumpRound = dir => update(s => {
@@ -366,14 +379,14 @@ function ActiveWorkout() {
             })}
           </div>
           <ExerciseBlock key={shown} entryIdx={shown} compact focus={perSet} hideSetButtons={!!circ}
-            onToggle={i => toggle(shown, i)} onField={(i, f, v) => setField(shown, i, f, v)} onAddSet={() => addSet(shown)} onRemoveSet={() => removeSet(shown)} onStartTimed={i => startTimed(shown, i)} onSwap={() => swapEntry(shown)} />
+            onToggle={i => toggle(shown, i)} onField={(i, f, v) => setField(shown, i, f, v)} onAddSet={() => addSet(shown)} onRemoveSet={() => removeSet(shown)} onStartTimed={i => startTimed(shown, i)} onSwap={() => swapEntry(shown)} onWarmup={(i, v) => markWarmup(shown, i, v)} />
           {circ && <div className="row" style={{ marginTop: 10 }}>
             <Button size="sm" icon="minus" disabled={circ.rounds <= 1} onClick={() => bumpRound(-1)}>{t('Remove round')}</Button>
             <Button size="sm" icon="plus" onClick={() => bumpRound(1)}>{t('Add round')}</Button>
           </div>}
         </div>
       })() : (
-        <ExerciseBlock key={cur} entryIdx={cur} focus={perSet} onToggle={i => toggle(cur, i)} onField={(i, f, v) => setField(cur, i, f, v)} onAddSet={() => addSet(cur)} onRemoveSet={() => removeSet(cur)} onStartTimed={i => startTimed(cur, i)} onSwap={() => swapEntry(cur)} />
+        <ExerciseBlock key={cur} entryIdx={cur} focus={perSet} onToggle={i => toggle(cur, i)} onField={(i, f, v) => setField(cur, i, f, v)} onAddSet={() => addSet(cur)} onRemoveSet={() => removeSet(cur)} onStartTimed={i => startTimed(cur, i)} onSwap={() => swapEntry(cur)} onWarmup={(i, v) => markWarmup(cur, i, v)} />
       )}
     </> : <div className="empty"><div className="ico"><Icon name="shuffle" /></div>{t('Freestyle workout — add your first exercise.')}</div>}
 

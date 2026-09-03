@@ -582,6 +582,16 @@ h4.sec{
 .setrow.eff3 .stp .num{font-size:14px}
 .setrow.done .n{background:var(--acc);color:var(--on-acc)}
 .setrow.done{opacity:.45}
+/* warm-up row: dashed number, no fill — reads as "not counted" next to the working sets */
+button.n{border:none;font-family:inherit;cursor:pointer;padding:0}
+.setrow.wu .n{background:transparent;border:1px dashed var(--label-3, var(--sep));color:var(--label-3, var(--label-2))}
+.setrow.wu .stp .num{opacity:.7}
+.setdone.wu .n{background:transparent;border:1px dashed var(--sep);color:var(--label-2)}
+.wu-tog{
+  margin-left:auto;border:none;background:transparent;color:var(--label-2);
+  font:inherit;font-size:12px;cursor:pointer;padding:2px 4px;
+}
+.wu-tog:active{color:var(--acc)}
 /* why the next target is what it is (issue #17) */
 .progline{
   display:flex;align-items:flex-start;gap:7px;margin:6px 0 2px;
@@ -906,9 +916,11 @@ h4.sec{
 
 /* one-set-at-a-time logging */
 .setnow-hd{
+  display:flex;align-items:center;
   font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.045em;
   color:var(--label-3);margin-bottom:8px;
 }
+.setnow-hd .wu-tog{text-transform:none;letter-spacing:0}
 .setdone-list{display:flex;flex-direction:column;margin-bottom:12px}
 .setdone{
   display:flex;align-items:center;gap:10px;padding:7px 2px;font-size:14px;color:var(--label-2);

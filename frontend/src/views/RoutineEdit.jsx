@@ -102,7 +102,7 @@ export default function RoutineEdit() {
   // dialled in. Beats delete-then-add-then-drag.
   const swapAt = i => exercisePicker(newEx => {
     const old = r.ex[i]
-    const seed = { ...defaultConfig(newEx.id), sets: old.sets, ...(old.prog ? { prog: old.prog } : {}), ...(old.inc ? { inc: old.inc } : {}) }
+    const seed = { ...defaultConfig(newEx.id), sets: old.sets, ...(old.warmups ? { warmups: old.warmups } : {}), ...(old.prog ? { prog: old.prog } : {}), ...(old.inc ? { inc: old.inc } : {}) }
     exConfigSheet(newEx, seed, cfg => edit(x => { x[i] = { id: newEx.id, sg: x[i].sg, ...cfg } }), null, r)
   })
 

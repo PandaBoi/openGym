@@ -501,6 +501,8 @@ function ExConfig({ ex, existing, onSave, onDelete, onSwap, close, routine }) {
   const save = () => {
     close()
     const sets = Math.max(1, Math.round(c.sets) || (cardio ? 1 : 3))
+    const warmups = Math.max(0, Math.min(10, Math.round(c.warmups) || 0))
+    const wu = warmups ? { warmups } : {}
     // Only carry progression settings that differ from the inherited default, so a plan file
     // stays readable and "follow the routine" keeps meaning exactly that.
     const prog = {}
@@ -514,13 +516,13 @@ function ExConfig({ ex, existing, onSave, onDelete, onSwap, close, routine }) {
     const flags = {}
     if (bw !== isBodyweightEq(ex.id)) flags.bodyweight = bw
     if (cardio) onSave({ sets, min: Math.max(1, Math.round(c.min) || 20), speed: Math.max(0, c.speed || 8) })
-    else if (mode === 'time') onSave({ sets, mode: 'time', sec: Math.max(1, Math.round(c.sec) || 45), weight: Math.max(0, c.weight || 0), ...flags, ...prog })
+    else if (mode === 'time') onSave({ sets, mode: 'time', sec: Math.max(1, Math.round(c.sec) || 45), weight: Math.max(0, c.weight || 0), ...wu, ...flags, ...prog })
     else {
       // A unilateral target is stored even: the split has to divide, and a typed 15 would
       // otherwise plan seven reps on one side and eight on the other, every session.
       const typed = Math.max(1, Math.round(c.reps) || 10)
       const reps = perSide ? Math.ceil(typed / 2) * 2 : typed
-      const out = { sets, mode: 'reps', reps, weight: Math.max(0, c.weight || 0), ...flags, ...(perSide ? { side: true } : {}), ...prog }
+      const out = { sets, mode: 'reps', reps, weight: Math.max(0, c.weight || 0), ...wu, ...flags, ...(perSide ? { side: true } : {}), ...prog }
       if (policyFor({ ...c, id: ex.id }, routine, 'reps') === 'double') out.repsMin = Math.min(reps, Math.max(1, Math.round(c.repsMin) || Math.max(1, reps - 2)))
       // A ceiling below the working reps would tell you to add a set on day one.
       if (bw && !(out.weight > 0) && c.repsMax > 0) out.repsMax = Math.max(reps, Math.round(c.repsMax))
@@ -559,6 +561,17 @@ function ExConfig({ ex, existing, onSave, onDelete, onSwap, close, routine }) {
     {mode === 'time' && !bw && <div className="small dim" style={{ marginBottom: 18 }}>
       {t('A timer runs while you hold the set. Leave the weight at 0 for bodyweight holds.')}
     </div>}
+    {/* Leading light sets. Logged, but the progression engine skips them — `sets` above
+        stays the count of working sets. */}
+    {!cardio && <>
+      <div className="row cfgrow" style={{ marginBottom: 8 }}>
+        <Stepper label={t('Warm-up sets')} value={c.warmups || 0} step={1} decimal={false}
+          onChange={v => setC(x => ({ ...x, warmups: v }))} />
+      </div>
+      <div className="small dim" style={{ marginBottom: 18 }}>
+        {t('Light sets in front of your working sets — logged, but they don’t count toward progression.')}
+      </div>
+    </>}
     {/* ---------- bodyweight + per side (issues #31/#32/#33) ---------- */}
     {!cardio && <div className="sect-b" style={{ marginBottom: 8 }}>
       <Row icon="figureStrength" iconTint="var(--acc)" title={t('Bodyweight')}
@@ -955,7 +968,7 @@ function doFinishWorkout() {
   const prs = []
   const e1prs = []
   A.entries.forEach(e => {
-    const mx = Math.max(0, ...e.sets.filter(s => s.done).map(s => s.w))
+    const mx = Math.max(0, ...e.sets.filter(s => s.done && !s.wu).map(s => s.w))
     if (mx > 0 && mx > bestWeightFor(st, e.id)) prs.push(e.id)
     // A heavier estimate without a heavier top set is its own kind of progress —
     // same weight for more reps. Reported separately so it can't be read as a load PR.
@@ -973,7 +986,7 @@ function doFinishWorkout() {
   w.vol = workoutVolume(w)
   update(s => {
     w.entries.forEach(e => {
-      const mx = Math.max(0, ...e.sets.filter(x => x.done).map(x => x.w || 0), e.topW || 0)
+      const mx = Math.max(0, ...e.sets.filter(x => x.done && !x.wu).map(x => x.w || 0), e.topW || 0)
       if (mx > 0) { const cur = s.exWeights[e.id]; if (!cur || mx > cur.w) s.exWeights[e.id] = { w: mx, d: w.d } }
     })
     s.workouts.push(w)

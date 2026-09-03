@@ -192,18 +192,24 @@ export function effectiveRoutine(S, iso) {
   const id = effectiveRoutineId(S, iso)
   return id ? S.routines.find(r => r.id === id) || null : null
 }
+// Leading light sets the progression engine ignores — `cfg.sets` stays the count of
+// working sets under progression; warm-ups sit in front of them.
+export const warmupCount = cfg => Math.max(0, Math.min(10, Math.round(cfg?.warmups || 0)))
+
 export function buildSets(S, cfg) {
   const last = lastEntryFor(S, cfg.id)
-  const n = Math.max(1, cfg.sets || 1)
+  const wu = warmupCount(cfg)
+  const n = Math.max(1, cfg.sets || 1) + wu
   const mode = modeOf(cfg)
   const sets = []
   // Last time's set at the same position, falling back to its final set when the plan grew.
   const prevAt = i => (last ? (last.sets[i] || last.sets[last.sets.length - 1]) : null)
+  const tag = (s, i) => (i < wu ? { ...s, wu: true } : s)
 
   if (mode === 'cardio') {
     for (let i = 0; i < n; i++) {
       const prev = prevAt(i)
-      sets.push({ min: prev ? prev.min : (cfg.min || 20), speed: prev ? prev.speed : (cfg.speed || 8), done: false })
+      sets.push(tag({ min: prev ? prev.min : (cfg.min || 20), speed: prev ? prev.speed : (cfg.speed || 8), done: false }, i))
     }
     return sets
   }
@@ -213,7 +219,7 @@ export function buildSets(S, cfg) {
       // exercise from reps to time must not seed the duration from a rep count.
       const prev = prevAt(i)
       const carried = prev && prev.sec > 0 ? prev : null
-      sets.push({ sec: carried ? carried.sec : (cfg.sec || 45), w: carried ? (carried.w || 0) : (cfg.weight || 0), done: false })
+      sets.push(tag({ sec: carried ? carried.sec : (cfg.sec || 45), w: carried ? (carried.w || 0) : (cfg.weight || 0), done: false }, i))
     }
     return sets
   }
@@ -222,7 +228,7 @@ export function buildSets(S, cfg) {
     const prev = prevAt(i)
     const usable = prev && prev.r > 0 ? prev : null
     const w = conf && conf.w > 0 ? conf.w : (usable ? usable.w : cfg.weight)
-    sets.push({ w, r: usable ? usable.r : cfg.reps, done: false })
+    sets.push(tag({ w, r: usable ? usable.r : cfg.reps, done: false }, i))
   }
   return sets
 }
