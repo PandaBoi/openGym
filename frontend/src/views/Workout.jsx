@@ -57,7 +57,7 @@ function Elapsed({ start }) {
    `focus` mode logs one set at a time: finished sets collapse to a read-only strip, the set
    in front of you gets big fields and a full-width "Log set" button. "Show all sets" flips
    back to the full grid for anyone who plans the whole exercise up front. */
-function ExerciseBlock({ entryIdx, compact, focus, onToggle, onField, onAddSet, onRemoveSet, onStartTimed, onSwap, onWarmup, hideSetButtons, removeDisabled, sharedSet }) {
+function ExerciseBlock({ entryIdx, compact, focus, onToggle, onField, onAddSet, onRemoveSet, onAddWarmup, onStartTimed, onSwap, onWarmup, hideSetButtons, removeDisabled, sharedSet }) {
   const S = useStore(s => s.S)
   const working = useUI(s => s.work)
   const [showAll, setShowAll] = useState(false)
@@ -188,9 +188,10 @@ function ExerciseBlock({ entryIdx, compact, focus, onToggle, onField, onAddSet, 
               : <Button variant="primary" icon="check" onClick={() => onToggle(curI)}>{t('Log set')}</Button>}
           </> : <div className="setnow-hd" style={{ padding: '10px 0 2px' }}>{t('All sets done.')}</div>}
           <div style={{ height: 10 }} />
-          <div className="row">
+          <div className="row" style={{ flexWrap: 'wrap', rowGap: 8 }}>
             {!hideSetButtons && <Button size="sm" icon="minus" disabled={removeDisabled != null ? removeDisabled : entry.sets.length <= 1} title={sharedSet ? t('Removes a set from every exercise in this superset') : undefined} onClick={onRemoveSet}>{t('Remove set')}</Button>}
             {!hideSetButtons && <Button size="sm" icon="plus" title={sharedSet ? t('Adds a set to every exercise in this superset') : undefined} onClick={onAddSet}>{t('Add set')}</Button>}
+            {!hideSetButtons && onAddWarmup && <Button size="sm" variant="ghost" icon="flame" title={sharedSet ? t('Adds a warm-up set to every exercise in this superset — next up') : t('Slots in right before your next set — doesn’t count toward progression')} onClick={onAddWarmup}>{t('Warm-up')}</Button>}
             <Button size="sm" variant="ghost" className="dim" style={{ marginLeft: 'auto' }} onClick={() => setShowAll(true)}>{t('All sets')}</Button>
           </div>
         </>
@@ -209,9 +210,10 @@ function ExerciseBlock({ entryIdx, compact, focus, onToggle, onField, onAddSet, 
           <Check checked={s.done} onChange={() => onToggle(i)} />
         </div>)}
         <div style={{ height: 8 }} />
-        <div className="row">
+        <div className="row" style={{ flexWrap: 'wrap', rowGap: 8 }}>
           {!hideSetButtons && <Button size="sm" icon="minus" disabled={removeDisabled != null ? removeDisabled : entry.sets.length <= 1} title={sharedSet ? t('Removes a set from every exercise in this superset') : undefined} onClick={onRemoveSet}>{t('Remove set')}</Button>}
           {!hideSetButtons && <Button size="sm" icon="plus" title={sharedSet ? t('Adds a set to every exercise in this superset') : undefined} onClick={onAddSet}>{t('Add set')}</Button>}
+          {!hideSetButtons && onAddWarmup && <Button size="sm" variant="ghost" icon="flame" title={sharedSet ? t('Adds a warm-up set to every exercise in this superset — next up') : t('Slots in right before your next set — doesn’t count toward progression')} onClick={onAddWarmup}>{t('Warm-up')}</Button>}
           {focus && <Button size="sm" variant="ghost" className="dim" style={{ marginLeft: 'auto' }} onClick={() => setShowAll(false)}>{t('Current set')}</Button>}
         </div>
       </>}
@@ -272,6 +274,22 @@ function ActiveWorkout() {
   // Flag a row as a warm-up (or clear it) by hand — progression skips warm-ups, so this is
   // how you keep a light opener out of the stall/deload maths on an ad-hoc day.
   const markWarmup = (idx, i, v) => mutEntry(idx, e => { if (v) e.sets[i].wu = true; else delete e.sets[i].wu })
+  // Slot in a fresh warm-up set mid-session — not just relabel one that's already there.
+  // Lands right before the next set you owe (not at the end), seeded from that neighbour so
+  // it doesn't show up at 0/0 and tagged wu straight away so it never touches progression.
+  const insertWarmup = e => {
+    const at = e.sets.findIndex(s => !s.done)
+    const idx = at === -1 ? e.sets.length : at
+    const near = e.sets[idx] || e.sets[idx - 1]
+    const m = modeOf({ ...(e.target || {}), id: e.id })
+    const row = m === 'cardio' ? { min: near ? near.min : (e.target.min || 20), speed: near ? near.speed : (e.target.speed || 8), done: false }
+      : m === 'time' ? { sec: near ? near.sec : (e.target.sec || 45), w: near ? (near.w || 0) : (e.target.weight || 0), done: false }
+        : { w: near ? near.w : 0, r: near ? near.r : e.target.reps, done: false }
+    row.wu = true
+    e.sets.splice(idx, 0, row)
+  }
+  const addWarmup = idx => mutEntry(idx, insertWarmup)
+  const addWarmupUnit = idxs => update(s => { idxs.forEach(i => insertWarmup(s.active.entries[i])) }, true)
   // A circuit adds/drops a whole round — one set on every member — and keeps its round count
   // in step so the "Round k / n" header stays right.
   const bumpRound = dir => update(s => {
@@ -426,7 +444,7 @@ function ActiveWorkout() {
           </div>
           <ExerciseBlock key={shown} entryIdx={shown} compact focus={perSet} hideSetButtons={!!circ}
             removeDisabled={unit.some(i => A.entries[i].sets.length <= 1)} sharedSet={!circ}
-            onToggle={i => toggle(shown, i)} onField={(i, f, v) => setField(shown, i, f, v)} onAddSet={() => addSetUnit(unit)} onRemoveSet={() => removeSetUnit(unit)} onStartTimed={i => startTimed(shown, i)} onSwap={() => swapEntry(shown)} onWarmup={(i, v) => markWarmup(shown, i, v)} />
+            onToggle={i => toggle(shown, i)} onField={(i, f, v) => setField(shown, i, f, v)} onAddSet={() => addSetUnit(unit)} onRemoveSet={() => removeSetUnit(unit)} onAddWarmup={() => addWarmupUnit(unit)} onStartTimed={i => startTimed(shown, i)} onSwap={() => swapEntry(shown)} onWarmup={(i, v) => markWarmup(shown, i, v)} />
           {circ && <div className="row" style={{ marginTop: 10 }}>
             <Button size="sm" icon="minus" disabled={circ.rounds <= 1} onClick={() => bumpRound(-1)}>{t('Remove round')}</Button>
             <Button size="sm" icon="plus" onClick={() => bumpRound(1)}>{t('Add round')}</Button>
@@ -434,7 +452,7 @@ function ActiveWorkout() {
           </div>}
         </div>
       })() : (
-        <ExerciseBlock key={cur} entryIdx={cur} focus={perSet} onToggle={i => toggle(cur, i)} onField={(i, f, v) => setField(cur, i, f, v)} onAddSet={() => addSet(cur)} onRemoveSet={() => removeSet(cur)} onStartTimed={i => startTimed(cur, i)} onSwap={() => swapEntry(cur)} onWarmup={(i, v) => markWarmup(cur, i, v)} />
+        <ExerciseBlock key={cur} entryIdx={cur} focus={perSet} onToggle={i => toggle(cur, i)} onField={(i, f, v) => setField(cur, i, f, v)} onAddSet={() => addSet(cur)} onRemoveSet={() => removeSet(cur)} onAddWarmup={() => addWarmup(cur)} onStartTimed={i => startTimed(cur, i)} onSwap={() => swapEntry(cur)} onWarmup={(i, v) => markWarmup(cur, i, v)} />
       )}
     </> : <div className="empty"><div className="ico"><Icon name="shuffle" /></div>{t('Freestyle workout — add your first exercise.')}</div>}
 

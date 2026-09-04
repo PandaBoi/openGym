@@ -27,8 +27,8 @@ android {
         applicationId "com.rohanpanda.opengym"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 17
-        versionName "1.12.0"
+        versionCode 18
+        versionName "1.13.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // On-device LLM (voicellm.cpp + vendored llama.cpp). arm64 only — it's the only
         // phone target and building ggml for x86 doubles the build with no payoff.
