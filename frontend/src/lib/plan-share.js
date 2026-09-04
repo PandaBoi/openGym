@@ -49,24 +49,34 @@ function cleanEx(e) {
   return o
 }
 
-/** Build the shareable bundle: every routine, the week schedule, referenced customs. */
-export function buildPlanBundle(S, name) {
-  const routines = (S.routines || []).map(r => ({
+/**
+ * Build the shareable bundle. `pick` narrows what goes in:
+ *   { routineIds?: string[]   // only these routines (default: all)
+ *     week?: boolean           // include the weekly schedule (default: true)
+ *     circuits?: boolean }     // include the whole saved-circuit library (default: true;
+ *                              // circuits a chosen routine references travel regardless)
+ */
+export function buildPlanBundle(S, name, pick = {}) {
+  const pickR = pick.routineIds ? new Set(pick.routineIds) : null
+  const routines = (S.routines || []).filter(r => !pickR || pickR.has(r.id)).map(r => ({
     id: r.id, name: r.name, emoji: r.emoji, ...(r.prog ? { prog: r.prog } : {}),
     ...(r.cg && Object.keys(r.cg).length ? { cg: r.cg } : {}),
     ex: (r.ex || []).map(cleanEx)
   }))
-  // Saved circuits referenced by a routine's circuit meta travel too, so "Swap circuit"
-  // has something to point at on the other end.
+  // Circuits a chosen routine references always travel (so "Swap circuit" resolves on the
+  // other end); the rest of the saved library rides along unless `circuits: false`.
   const usedCids = new Set(routines.flatMap(r => Object.values(r.cg || {}).map(g => g && g.cid).filter(Boolean)))
-  const circuits = (S.circuits || []).filter(c => usedCids.has(c.id))
+  const wantLib = pick.circuits !== false
+  const circuits = (S.circuits || []).filter(c => wantLib || usedCids.has(c.id))
     .map(c => ({ id: c.id, label: c.label || '', rounds: c.rounds || 3, ex: (c.ex || []).map(cleanEx) }))
   const usedIds = new Set([...routines.flatMap(r => r.ex.map(e => e.id)), ...circuits.flatMap(c => c.ex.map(e => e.id))])
   const customEx = (S.customEx || [])
     .filter(c => usedIds.has(c.id))
     .map(c => ({ id: c.id, n: c.n, bp: c.bp, ...(c.desc ? { desc: c.desc } : {}) }))
   const week = {}
-  WEEK_ORDER.forEach(d => { if (S.week?.[d]) week[d] = S.week[d] })
+  if (pick.week !== false) WEEK_ORDER.forEach(d => {
+    if (S.week?.[d] && (!pickR || pickR.has(S.week[d]))) week[d] = S.week[d]
+  })
   return { opengym_plan: PLAN_FMT, exported: todayISO(), name: name || '', week, routines, customEx, circuits }
 }
 
@@ -118,8 +128,15 @@ export function parsePlan(raw) {
  *  - routines: always added as NEW routines (fresh ids) — never overwrites yours
  *  - schedule: optional; when on, the shared week REPLACES yours (days the shared plan
  *    leaves empty become rest days — a half-overwritten week would silently mix two plans)
+ *  - routineIds: optional allow-list — only these routines from the file are merged
+ *  - circuits: optional (default true) — bring in the file's saved circuits. Circuits a
+ *    merged routine references come in regardless.
  */
-export function mergePlan(s, bundle, { schedule } = {}) {
+export function mergePlan(s, bundle, { schedule, routineIds, circuits = true } = {}) {
+  const pickR = routineIds ? new Set(routineIds) : null
+  const routinesIn = (bundle.routines || []).filter(r => !pickR || pickR.has(r.id))
+  const neededCids = new Set(routinesIn.flatMap(r => Object.values(r.cg || {}).map(g => g && g.cid).filter(Boolean)))
+  const circuitsIn = (bundle.circuits || []).filter(c => circuits || neededCids.has(c.id))
   s.customEx = s.customEx || []
   const exIdMap = {}
   bundle.customEx.forEach(c => {
@@ -132,7 +149,7 @@ export function mergePlan(s, bundle, { schedule } = {}) {
   // Saved circuits first, so routine circuit meta can be remapped onto the fresh ids.
   s.circuits = s.circuits || []
   const cidMap = {}
-  ;(bundle.circuits || []).forEach(c => {
+  circuitsIn.forEach(c => {
     const nid = 'c' + uid()
     cidMap[c.id] = nid
     s.circuits.push({
@@ -141,7 +158,7 @@ export function mergePlan(s, bundle, { schedule } = {}) {
     })
   })
   const ridMap = {}
-  bundle.routines.forEach(r => {
+  routinesIn.forEach(r => {
     const nid = uid()
     ridMap[r.id] = nid
     const routine = {
@@ -167,7 +184,7 @@ export function mergePlan(s, bundle, { schedule } = {}) {
       if (ridMap[oldId]) s.week[d] = ridMap[oldId]
     })
   }
-  return { routines: bundle.routines.length }
+  return { routines: routinesIn.length, circuits: circuitsIn.length }
 }
 
 /* ------------------------------- printable PDF ------------------------------- */

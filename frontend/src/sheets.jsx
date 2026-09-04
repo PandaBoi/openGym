@@ -644,14 +644,31 @@ export const glyphPicker = (current, onPick) => {
 /* ============================ share / print / import a plan ============================ */
 export const planToolsSheet = () => ui().openSheet(close => <PlanTools close={close} />)
 
+// A checkbox row — reused by the export picker and the import picker.
+function CheckRow({ on, onToggle, title, sub }) {
+  return <div className="item" onClick={onToggle} style={{ cursor: 'pointer' }}>
+    <span className="lrow-i" style={{ background: on ? 'var(--acc)' : 'var(--surface-2)', color: on ? 'var(--on-acc)' : 'var(--label-3)' }}>
+      {on ? <Icon name="check" /> : null}
+    </span>
+    <div className="grow"><div className="tt">{title}</div>{sub && <div className="ss">{sub}</div>}</div>
+  </div>
+}
+
 function PlanTools({ close }) {
   const st = useStore(s => s.S)
   const user = useStore(s => s.user)
   const fileRef = useRef(null)
-  const hasRoutines = (st.routines || []).some(r => r.ex && r.ex.length)
+  const routines = (st.routines || []).filter(r => r.ex && r.ex.length)
+  const hasRoutines = routines.length > 0
+  const [sel, setSel] = useState(() => new Set(routines.map(r => r.id)))
+  const [incWeek, setIncWeek] = useState(true)
+  const [incCircuits, setIncCircuits] = useState(true)
+  const circuitCount = (st.circuits || []).length
+  const toggle = id => setSel(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
 
   const exportFile = async () => {
-    const bundle = buildPlanBundle(st, user?.name ? t('{0}’s plan', user.name) : '')
+    const bundle = buildPlanBundle(st, user?.name ? t('{0}’s plan', user.name) : '',
+      { routineIds: [...sel], week: incWeek, circuits: incCircuits })
     const json = JSON.stringify(bundle, null, 2)
     const name = 'opengym-plan-' + todayISO() + '.json'
     if (MOBILE) { try { await shareExport(json, name) } catch (e) { /* dismissed */ } close(); return }
@@ -671,15 +688,22 @@ function PlanTools({ close }) {
 
   return <>
     <h3>{t('Share your plan')}</h3>
-    <div className="muted small" style={{ marginBottom: 16 }}>{t('Send your routines to a friend, or put your week on paper.')}</div>
-    <Button variant="primary" icon="upload" onClick={exportFile} disabled={!hasRoutines}>{t('Export plan file')}</Button>
-    <div className="dim small" style={{ margin: '7px 2px 0', lineHeight: 1.4 }}>{t('A small file a friend imports into their own openGym — routines only, none of your workouts or weigh-ins.')}</div>
-    {!MOBILE && <>
-      <div style={{ height: 12 }} />
-      <Button variant="tinted" icon="download" onClick={() => { close(); printPlan(st, user?.name || '') }} disabled={!hasRoutines}>{t('Print / Save as PDF')}</Button>
-      <div className="dim small" style={{ margin: '7px 2px 0', lineHeight: 1.4 }}>{t('A clean one-page-per-plan printout — no exercise ever splits across a page.')}</div>
-    </>}
-    {!hasRoutines && <div className="dim small" style={{ margin: '12px 2px 0' }}>{t('Add an exercise to a routine first — an empty plan has nothing to share.')}</div>}
+    <div className="muted small" style={{ marginBottom: 12 }}>{t('Pick what goes in the file — none of your workouts or weigh-ins ever do.')}</div>
+    {hasRoutines ? <>
+      <div className="list" style={{ marginBottom: 10 }}>
+        {routines.map(r => <CheckRow key={r.id} on={sel.has(r.id)} onToggle={() => toggle(r.id)}
+          title={r.name} sub={exCount(r.ex.length)} />)}
+        <CheckRow on={incWeek} onToggle={() => setIncWeek(v => !v)} title={t('Week schedule')} />
+        {circuitCount > 0 && <CheckRow on={incCircuits} onToggle={() => setIncCircuits(v => !v)}
+          title={t('Saved circuits')} sub={t(circuitCount === 1 ? '{0} circuit' : '{0} circuits', circuitCount)} />}
+      </div>
+      <Button variant="primary" icon="upload" onClick={exportFile} disabled={!sel.size}>{t('Export plan file')}</Button>
+      {!MOBILE && <>
+        <div style={{ height: 10 }} />
+        <Button variant="tinted" icon="download" onClick={() => { close(); printPlan(st, user?.name || '') }}>{t('Print / Save as PDF')}</Button>
+        <div className="dim small" style={{ margin: '7px 2px 0', lineHeight: 1.4 }}>{t('The printout always covers the whole plan.')}</div>
+      </>}
+    </> : <div className="dim small" style={{ margin: '4px 2px 0' }}>{t('Add an exercise to a routine first — an empty plan has nothing to share.')}</div>}
     <h4 className="sec">{t('Got a plan from a friend?')}</h4>
     <Button variant="ghost" icon="folder" onClick={() => fileRef.current?.click()}>{t('Import a plan file')}</Button>
     <input ref={fileRef} type="file" accept="application/json,.json" onChange={pickFile} hidden />
@@ -689,33 +713,38 @@ function PlanTools({ close }) {
 export const planImportSheet = bundle => ui().openSheet(close => <PlanImport bundle={bundle} close={close} />)
 
 function PlanImport({ bundle, close }) {
+  const rlist = bundle.routines || []
+  const [sel, setSel] = useState(() => new Set(rlist.map(r => r.id)))
   const [schedule, setSchedule] = useState(false)
-  const apply = () => {
-    update(s => mergePlan(s, bundle, { schedule }))
+  const [incCircuits, setIncCircuits] = useState(true)
+  const toggle = id => setSel(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const circuitCount = (bundle.circuits || []).length
+  const doApply = () => {
+    let added = 0
+    update(s => { added = mergePlan(s, bundle, { schedule, routineIds: [...sel], circuits: incCircuits }).routines })
     close()
-    toast(t('Added {0} routines to your plan', bundle.routineCount))
+    toast(t('Added {0} routines to your plan', added))
     nav('/plan')
   }
   return <>
     <h3>{bundle.name ? t('Import “{0}”', bundle.name) : t('Import this plan')}</h3>
-    <div className="muted small" style={{ marginBottom: 14 }}>
-      {t(bundle.routineCount === 1 ? '{0} routine' : '{0} routines', bundle.routineCount)}
-      {' · ' + exCount(bundle.exerciseCount)}
-      {bundle.scheduledDays > 0
-        ? ' · ' + t(bundle.scheduledDays === 1 ? 'scheduled on {0} day' : 'scheduled on {0} days', bundle.scheduledDays)
-        : ''}
-    </div>
-    <div className="dim small" style={{ marginBottom: 14, lineHeight: 1.4 }}>{t('These are added as new routines — nothing you already have is changed.')}</div>
-    {bundle.dropped > 0 && <div className="small" style={{ color: 'var(--yellow)', marginBottom: 14, lineHeight: 1.4 }}>
+    <div className="dim small" style={{ marginBottom: 12, lineHeight: 1.4 }}>{t('Pick what to bring in — added as new routines, nothing you already have is changed.')}</div>
+    {bundle.dropped > 0 && <div className="small" style={{ color: 'var(--yellow)', marginBottom: 12, lineHeight: 1.4 }}>
       {t(bundle.dropped === 1
         ? '{0} exercise in the file isn’t in your library and was left out.'
         : '{0} exercises in the file aren’t in your library and were left out.', bundle.dropped)}
     </div>}
+    <div className="list" style={{ marginBottom: 10 }}>
+      {rlist.map(r => <CheckRow key={r.id} on={sel.has(r.id)} onToggle={() => toggle(r.id)}
+        title={r.name || t('Shared routine')} sub={exCount((r.ex || []).length)} />)}
+      {circuitCount > 0 && <CheckRow on={incCircuits} onToggle={() => setIncCircuits(v => !v)}
+        title={t('Saved circuits')} sub={t(circuitCount === 1 ? '{0} circuit' : '{0} circuits', circuitCount)} />}
+    </div>
     {bundle.scheduledDays > 0 && <div className="row between" style={{ padding: '10px 2px', borderTop: '1px solid var(--sep)', borderBottom: '1px solid var(--sep)', marginBottom: 16, gap: 12 }}>
       <div><div className="tt" style={{ fontSize: 15 }}>{t('Use this weekly schedule')}</div><div className="small dim">{t('Replaces your current Mon–Sun assignments.')}</div></div>
       <Switch checked={schedule} onChange={setSchedule} />
     </div>}
-    <Button variant="primary" onClick={apply}>{t('Add to my plan')}</Button>
+    <Button variant="primary" onClick={doApply} disabled={!sel.size}>{t('Add to my plan')}</Button>
     <div style={{ height: 8 }} />
     <Button variant="ghost" className="dim" onClick={close}>{t('Cancel')}</Button>
   </>
