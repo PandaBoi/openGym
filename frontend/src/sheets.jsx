@@ -16,7 +16,7 @@ import { glyphOf, GLYPH_GROUPS, DEFAULT_GLYPH } from './lib/glyphs.js'
 import BodyMap from './components/BodyMap.jsx'
 import { loadOfWorkouts } from './lib/muscles.js'
 import { parseImport, mergeImport } from './lib/import-csv.js'
-import { buildPlanBundle, parsePlan, mergePlan, printPlan } from './lib/plan-share.js'
+import { buildPlanBundle, parsePlan, mergePlan, printPlan, planConflicts } from './lib/plan-share.js'
 import { newCircuit, cleanCircuitEx, groupToCircuit, inlineCircuits } from './lib/circuits.js'
 import { estimate1RM, best1RM, is1RMRecord, REP_CAP } from './lib/onerm.js'
 import { nextPrescription, applyPrescription, policyFor, defaultIncrement, POLICIES_FOR, POLICY_NAME, POLICY_DESC, MAX_BW_SETS } from './lib/progression.js'
@@ -46,6 +46,8 @@ export function confirmSheet(opts) {
 /* ============================ starter plan ============================ */
 export function loadStarterPlan() {
   const [push, pull, legs] = starterRoutines()
+  const now = Date.now()
+  push.ts = pull.ts = legs.ts = now
   update(st => {
     st.routines.push(push, pull, legs)
     st.week[1] = push.id; st.week[3] = pull.id; st.week[5] = legs.id
@@ -713,26 +715,52 @@ function PlanTools({ close }) {
 export const planImportSheet = bundle => ui().openSheet(close => <PlanImport bundle={bundle} close={close} />)
 
 function PlanImport({ bundle, close }) {
+  const st = useStore(s => s.S)
   const rlist = bundle.routines || []
   const [sel, setSel] = useState(() => new Set(rlist.map(r => r.id)))
   const [schedule, setSchedule] = useState(false)
   const [incCircuits, setIncCircuits] = useState(true)
   const toggle = id => setSel(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
   const circuitCount = (bundle.circuits || []).length
-  const doApply = () => {
-    let added = 0
-    update(s => { added = mergePlan(s, bundle, { schedule, routineIds: [...sel], circuits: incCircuits }).routines })
+  // A routine that shares a name with one you already have is never duplicated — the
+  // newer copy (by last-edited time) wins. Surface which before it happens.
+  const conflicts = planConflicts(st, bundle, [...sel])
+  const overwrites = conflicts.filter(c => c.overwrite)
+  const keeps = conflicts.filter(c => !c.overwrite)
+
+  const runApply = () => {
+    let res = {}
+    update(s => { res = mergePlan(s, bundle, { schedule, routineIds: [...sel], circuits: incCircuits }) })
     close()
-    toast(t('Added {0} routines to your plan', added))
+    const bits = []
+    if (res.added) bits.push(t(res.added === 1 ? '{0} routine added' : '{0} routines added', res.added))
+    if (res.overwritten) bits.push(t(res.overwritten === 1 ? '{0} replaced' : '{0} replaced', res.overwritten))
+    toast(bits.join(' · ') || t('Nothing changed'))
     nav('/plan')
+  }
+  const doApply = () => {
+    if (!overwrites.length) { runApply(); return }
+    confirmSheet({
+      title: t(overwrites.length === 1 ? 'Replace 1 routine?' : 'Replace {0} routines?', overwrites.length),
+      message: t('Same name as one you already have, and newer in the file: {0}. Your copy will be overwritten — this can’t be undone.', overwrites.map(c => c.name).join(', ')),
+      confirmText: t('Overwrite'), danger: true, onConfirm: runApply
+    })
   }
   return <>
     <h3>{bundle.name ? t('Import “{0}”', bundle.name) : t('Import this plan')}</h3>
-    <div className="dim small" style={{ marginBottom: 12, lineHeight: 1.4 }}>{t('Pick what to bring in — added as new routines, nothing you already have is changed.')}</div>
+    <div className="dim small" style={{ marginBottom: 12, lineHeight: 1.4 }}>{t('Pick what to bring in. A name that matches one you already have replaces it only if the file’s copy is newer — nothing else you have is touched.')}</div>
     {bundle.dropped > 0 && <div className="small" style={{ color: 'var(--yellow)', marginBottom: 12, lineHeight: 1.4 }}>
       {t(bundle.dropped === 1
         ? '{0} exercise in the file isn’t in your library and was left out.'
         : '{0} exercises in the file aren’t in your library and were left out.', bundle.dropped)}
+    </div>}
+    {conflicts.length > 0 && <div className="small" style={{ color: 'var(--yellow)', marginBottom: 12, lineHeight: 1.4 }}>
+      {overwrites.length > 0 && <div>⚠ {t(overwrites.length === 1
+        ? '{0} will be OVERWRITTEN — the file’s copy is newer.'
+        : '{0} will be OVERWRITTEN — the file’s copies are newer.', overwrites.map(c => c.name).join(', '))}</div>}
+      {keeps.length > 0 && <div>{t(keeps.length === 1
+        ? '{0}: keeping your copy (yours is as new or newer).'
+        : '{0}: keeping your copies (yours are as new or newer).', keeps.map(c => c.name).join(', '))}</div>}
     </div>}
     <div className="list" style={{ marginBottom: 10 }}>
       {rlist.map(r => <CheckRow key={r.id} on={sel.has(r.id)} onToggle={() => toggle(r.id)}
@@ -744,7 +772,7 @@ function PlanImport({ bundle, close }) {
       <div><div className="tt" style={{ fontSize: 15 }}>{t('Use this weekly schedule')}</div><div className="small dim">{t('Replaces your current Mon–Sun assignments.')}</div></div>
       <Switch checked={schedule} onChange={setSchedule} />
     </div>}
-    <Button variant="primary" onClick={doApply} disabled={!sel.size}>{t('Add to my plan')}</Button>
+    <Button variant="primary" onClick={doApply} disabled={!sel.size}>{overwrites.length ? t('Review & import') : t('Add to my plan')}</Button>
     <div style={{ height: 8 }} />
     <Button variant="ghost" className="dim" onClick={close}>{t('Cancel')}</Button>
   </>

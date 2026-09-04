@@ -14,7 +14,7 @@ export default function Plan() {
   const update = useStore(s => s.update)
 
   const addRoutine = () => {
-    const r = { id: uid(), name: t('New routine'), emoji: DEFAULT_GLYPH, ex: [] }
+    const r = { id: uid(), name: t('New routine'), emoji: DEFAULT_GLYPH, ex: [], ts: Date.now() }
     update(s => { s.routines.push(r) })
     nav('/plan/r/' + r.id)
   }

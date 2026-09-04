@@ -59,7 +59,7 @@ function cleanEx(e) {
 export function buildPlanBundle(S, name, pick = {}) {
   const pickR = pick.routineIds ? new Set(pick.routineIds) : null
   const routines = (S.routines || []).filter(r => !pickR || pickR.has(r.id)).map(r => ({
-    id: r.id, name: r.name, emoji: r.emoji, ...(r.prog ? { prog: r.prog } : {}),
+    id: r.id, name: r.name, emoji: r.emoji, ts: r.ts || 0, ...(r.prog ? { prog: r.prog } : {}),
     ...(r.cg && Object.keys(r.cg).length ? { cg: r.cg } : {}),
     ex: (r.ex || []).map(cleanEx)
   }))
@@ -122,10 +122,38 @@ export function parsePlan(raw) {
   }
 }
 
+const normName = n => (n || '').trim().toLowerCase()
+
+/**
+ * Where an incoming routine's name matches one already on the phone. One entry per
+ * name collision among the routines about to be merged (respects `routineIds`):
+ * `{ name, overwrite, incomingTs, localTs }` — `overwrite` is what mergePlan will do:
+ * true when the file's copy is newer (by `ts`) and will replace the local one in place,
+ * false when the local copy is the same age or newer and is kept, import skipped.
+ * Surface this before calling mergePlan so an overwrite is never a silent surprise.
+ */
+export function planConflicts(S, bundle, routineIds) {
+  const pickR = routineIds ? new Set(routineIds) : null
+  const routinesIn = (bundle.routines || []).filter(r => !pickR || pickR.has(r.id))
+  const out = []
+  routinesIn.forEach(r => {
+    const norm = normName(r.name)
+    if (!norm) return
+    const local = (S.routines || []).find(x => normName(x.name) === norm)
+    if (!local) return
+    out.push({ name: r.name, overwrite: (r.ts || 0) > (local.ts || 0), incomingTs: r.ts || 0, localTs: local.ts || 0 })
+  })
+  return out
+}
+
 /**
  * Merge a parsed bundle into a draft state `s` (call inside store.update).
  *  - customs: reuse one you already have with the same name + body part, else add it fresh
- *  - routines: always added as NEW routines (fresh ids) — never overwrites yours
+ *  - routines: a name that matches one you already have is resolved by timestamp — the
+ *    newer `ts` wins. Newer-in-the-file REPLACES your routine in place (same id, so the week
+ *    schedule and any day overrides pointing at it keep working); newer-or-equal-locally
+ *    KEEPS yours and skips the import — either way nothing is left duplicated. No name match
+ *    still always adds as a new routine. See planConflicts to warn before this runs.
  *  - schedule: optional; when on, the shared week REPLACES yours (days the shared plan
  *    leaves empty become rest days — a half-overwritten week would silently mix two plans)
  *  - routineIds: optional allow-list — only these routines from the file are merged
@@ -158,13 +186,22 @@ export function mergePlan(s, bundle, { schedule, routineIds, circuits = true } =
     })
   })
   const ridMap = {}
+  let overwritten = 0
+  let skipped = 0
   routinesIn.forEach(r => {
-    const nid = uid()
+    const norm = normName(r.name)
+    const localIdx = norm ? s.routines.findIndex(x => normName(x.name) === norm) : -1
+    const local = localIdx >= 0 ? s.routines[localIdx] : null
+    // A same-name routine is resolved by timestamp, never duplicated: the newer copy wins.
+    if (local && !((r.ts || 0) > (local.ts || 0))) { skipped++; return }
+    const nid = local ? local.id : uid()   // overwrite keeps the id — week/day-overrides still resolve
     ridMap[r.id] = nid
+    if (local) overwritten++
     const routine = {
       id: nid,
       name: r.name || t('Shared routine'),
       emoji: r.emoji,
+      ts: r.ts || Date.now(),
       ...(r.prog ? { prog: r.prog } : {}),
       ...(r.cg && typeof r.cg === 'object' ? { cg: JSON.parse(JSON.stringify(r.cg)) } : {}),
       ex: (r.ex || []).map(e => ({ ...e, id: exIdMap[e.id] || e.id }))
@@ -176,7 +213,8 @@ export function mergePlan(s, bundle, { schedule, routineIds, circuits = true } =
     })
     // A circuit whose members didn't all survive id-resolution is no longer a circuit.
     if (routine.cg) cleanupCg(routine)
-    s.routines.push(routine)
+    if (local) s.routines[localIdx] = routine
+    else s.routines.push(routine)
   })
   if (schedule) {
     WEEK_ORDER.forEach(d => { delete s.week[d] })
@@ -184,7 +222,7 @@ export function mergePlan(s, bundle, { schedule, routineIds, circuits = true } =
       if (ridMap[oldId]) s.week[d] = ridMap[oldId]
     })
   }
-  return { routines: routinesIn.length, circuits: circuitsIn.length }
+  return { routines: routinesIn.length - skipped, added: routinesIn.length - skipped - overwritten, overwritten, skipped, circuits: circuitsIn.length }
 }
 
 /* ------------------------------- printable PDF ------------------------------- */

@@ -1,6 +1,8 @@
 import { useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useUI } from '../store/useUI.js'
 import { t } from '../lib/i18n.js'
+import { nav } from '../lib/nav.js'
 import { Button } from './ui.jsx'
 
 const clock = sec => Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0')
@@ -14,6 +16,7 @@ export default function RestTimer() {
   const work = useUI(s => s.work)
   const { addRest, stopRest, finishWorkEarly, stopWork } = useUI()
   const on = work || timer
+  const loc = useLocation()
   // The bar is fixed above the tab bar and floats over whatever is beneath it — during a
   // rest that was the next set's row. Extra bottom padding lets the page scroll clear.
   useEffect(() => {
@@ -22,16 +25,20 @@ export default function RestTimer() {
   }, [!!on])
   if (!on) return null
   const pct = (on.left / on.total) * 100
+  // The bar itself means "workout in progress" just as much as ResumeBar does, so away from
+  // /workout it's tappable too — stop the tap reaching it from the action buttons.
+  const jump = loc.pathname === '/workout' ? undefined : () => nav('/workout')
+  const stop = e => e.stopPropagation()
 
   if (work) return (
-    <div id="timer" className="working">
+    <div id="timer" className="working" onClick={jump} role={jump ? 'button' : undefined}>
       <div className="t">{clock(work.left)}</div>
       <div className="grow">
         {work.label && <div className="lbl">{work.label}</div>}
         <div className="bar"><i style={{ width: pct + '%' }} /></div>
       </div>
-      <Button size="sm" onClick={stopWork}>{t('Cancel')}</Button>
-      <Button size="sm" variant="primary" icon="check" onClick={finishWorkEarly}>{t('Done')}</Button>
+      <span onClick={stop}><Button size="sm" onClick={stopWork}>{t('Cancel')}</Button></span>
+      <span onClick={stop}><Button size="sm" variant="primary" icon="check" onClick={finishWorkEarly}>{t('Done')}</Button></span>
     </div>
   )
   // Three controls plus the clock don't fit one line on a phone — at 360px the bar is left
@@ -39,12 +46,12 @@ export default function RestTimer() {
   // read at a glance, controls get their own row. −15 and +15 sit together in number-line
   // order; Skip is pushed to the far edge, away from the button you tap to buy more time.
   return (
-    <div id="timer" className="rest">
+    <div id="timer" className="rest" onClick={jump} role={jump ? 'button' : undefined}>
       <div className="head">
         <div className="t">{clock(timer.left)}</div>
         <div className="bar"><i style={{ width: pct + '%' }} /></div>
       </div>
-      <div className="acts">
+      <div className="acts" onClick={stop}>
         <Button size="sm" icon="minus" onClick={() => addRest(-15)}>15s</Button>
         <Button size="sm" icon="plus" onClick={() => addRest(15)}>15s</Button>
         <Button size="sm" variant="primary" className="skip" onClick={stopRest}>{t('Skip')}</Button>

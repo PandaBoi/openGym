@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildPlanBundle, parsePlan, mergePlan } from './plan-share.js'
+import { buildPlanBundle, parsePlan, mergePlan, planConflicts } from './plan-share.js'
 import { EXDB } from './exercises.js'
 
 const A = EXDB.find(e => e.bp !== 'cardio' && e.eq !== 'body weight').id
@@ -68,5 +68,50 @@ describe('mergePlan — selective import', () => {
     const g = Object.values(pull.cg)[0]
     expect(g.cid).toBeTruthy()
     expect(s.circuits.some(c => c.id === g.cid)).toBe(true)
+  })
+})
+
+describe('name-conflict resolution — never duplicate, resolve by timestamp', () => {
+  const incoming = ts => ({
+    opengym_plan: 1, name: 'x', week: {}, customEx: [], circuits: [],
+    routines: [{ id: 'rX', name: 'Push', ts, ex: [{ id: A, sets: 5, reps: 5 }] }]
+  })
+  const localWithPush = ts => ({ routines: [{ id: 'local1', name: 'Push', ts, ex: [{ id: A, sets: 3, reps: 8 }] }], circuits: [], customEx: [], week: {} })
+
+  it('planConflicts reports overwrite when the file is newer', () => {
+    const c = planConflicts(localWithPush(1000), parsePlan(JSON.stringify(incoming(2000))))
+    expect(c).toEqual([{ name: 'Push', overwrite: true, incomingTs: 2000, localTs: 1000 }])
+  })
+
+  it('planConflicts reports keep when the local copy is as new or newer', () => {
+    expect(planConflicts(localWithPush(2000), parsePlan(JSON.stringify(incoming(1000))))[0].overwrite).toBe(false)
+    expect(planConflicts(localWithPush(1000), parsePlan(JSON.stringify(incoming(1000))))[0].overwrite).toBe(false)
+  })
+
+  it('mergePlan overwrites in place (same id) when the file is newer — no duplicate', () => {
+    const s = localWithPush(1000)
+    const bundle = parsePlan(JSON.stringify(incoming(2000)))
+    const res = mergePlan(s, bundle, {})
+    expect(s.routines).toHaveLength(1)
+    expect(s.routines[0].id).toBe('local1')          // id preserved — week/day-overrides still resolve
+    expect(s.routines[0].ex[0].sets).toBe(5)          // content replaced with the file's version
+    expect(res).toMatchObject({ routines: 1, added: 0, overwritten: 1, skipped: 0 })
+  })
+
+  it('mergePlan keeps the local copy and skips when it is as new or newer — no duplicate', () => {
+    const s = localWithPush(2000)
+    const bundle = parsePlan(JSON.stringify(incoming(1000)))
+    const res = mergePlan(s, bundle, {})
+    expect(s.routines).toHaveLength(1)
+    expect(s.routines[0].ex[0].sets).toBe(3)          // untouched
+    expect(res).toMatchObject({ routines: 0, added: 0, overwritten: 0, skipped: 1 })
+  })
+
+  it('a routine with no matching name is always just added', () => {
+    const s = { routines: [{ id: 'local1', name: 'Pull', ts: 9999, ex: [] }], circuits: [], customEx: [], week: {} }
+    const bundle = parsePlan(JSON.stringify(incoming(1)))
+    const res = mergePlan(s, bundle, {})
+    expect(s.routines.map(r => r.name).sort()).toEqual(['Pull', 'Push'])
+    expect(res.added).toBe(1)
   })
 })

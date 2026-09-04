@@ -168,6 +168,8 @@ button,.chip,.tile,.item,.wday,.cal-d,.swatch,.hm-c,.lrow,.seg button,.stp butto
 /* while the rest timer floats above the tab bar, keep its height scrollable-past
    (the rest variant is two rows tall — ~44px more than the single-row work timer) */
 body.resting #app{padding-bottom:calc(250px + var(--sab))}
+/* the resume bar is one row, shorter than the rest-timer bar it never appears alongside */
+body.resuming #app{padding-bottom:calc(150px + var(--sab))}
 @keyframes viewfade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 #app.vfade{animation:viewfade var(--med) var(--ease)}
 
@@ -582,16 +584,14 @@ h4.sec{
 .setrow.eff3 .stp .num{font-size:14px}
 .setrow.done .n{background:var(--acc);color:var(--on-acc)}
 .setrow.done{opacity:.45}
-/* warm-up row: dashed number, no fill — reads as "not counted" next to the working sets */
 button.n{border:none;font-family:inherit;cursor:pointer;padding:0}
-.setrow.wu .n{background:transparent;border:1px dashed var(--label-3, var(--sep));color:var(--label-3, var(--label-2))}
+/* One badge, one rule, everywhere a set shows its number — grid row, done-list, current-set
+   header. A flame (not a number) reads the same "not counted" way in all three; dashed and
+   unfilled so it never gets mistaken for a real accent-filled state. */
+.n.wu{background:transparent !important;border:1px dashed var(--label-3, var(--sep));color:var(--label-3, var(--label-2)) !important}
+.n.wu .icn{font-size:12px}
+.wu-badge{transition:background var(--fast),border-color var(--fast),color var(--fast)}
 .setrow.wu .stp .num{opacity:.7}
-.setdone.wu .n{background:transparent;border:1px dashed var(--sep);color:var(--label-2)}
-.wu-tog{
-  margin-left:auto;border:none;background:transparent;color:var(--label-2);
-  font:inherit;font-size:12px;cursor:pointer;padding:2px 4px;
-}
-.wu-tog:active{color:var(--acc)}
 /* why the next target is what it is (issue #17) */
 .progline{
   display:flex;align-items:flex-start;gap:7px;margin:6px 0 2px;
@@ -648,6 +648,26 @@ button.n{border:none;font-family:inherit;cursor:pointer;padding:0}
   font-size:12px;color:var(--label-2);margin-bottom:5px;text-transform:capitalize;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
+
+/* --- resume bar: the ongoing workout, one tap away from any screen --- */
+#resumebar{
+  position:fixed;left:12px;right:12px;bottom:calc(88px + var(--sab));z-index:60;
+  background:color-mix(in srgb,var(--orange) 14%,var(--surface) 86%);
+  border:var(--hair) solid color-mix(in srgb,var(--orange) 35%,transparent);
+  backdrop-filter:saturate(180%) blur(24px);-webkit-backdrop-filter:saturate(180%) blur(24px);
+  border-radius:var(--r-lg);padding:12px 14px;
+  display:flex;align-items:center;gap:10px;width:100%;
+  box-shadow:0 12px 34px -8px rgba(0,0,0,.5);
+  animation:slideup var(--med) var(--ease);
+  font:inherit;color:var(--label);cursor:pointer;
+}
+#resumebar .dot{width:9px;height:9px;border-radius:50%;background:var(--orange);flex:none;
+  box-shadow:0 0 0 4px color-mix(in srgb,var(--orange) 22%,transparent);animation:pulse 1.8s ease infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+#resumebar .lbl{flex:1;min-width:0;text-align:left;font-size:14px;font-weight:600;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:capitalize}
+#resumebar .icn{color:var(--orange);font-size:15px;flex:none}
+@media (min-width:600px){#resumebar{left:50%;right:auto;margin-left:-260px;width:520px}}
 
 /* ---------------------------------------------------------------- modal -- */
 #modal-root{position:fixed;inset:0;z-index:100;display:none}
@@ -916,11 +936,14 @@ button.n{border:none;font-family:inherit;cursor:pointer;padding:0}
 
 /* one-set-at-a-time logging */
 .setnow-hd{
-  display:flex;align-items:center;
+  display:flex;align-items:center;gap:8px;
   font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.045em;
   color:var(--label-3);margin-bottom:8px;
 }
-.setnow-hd .wu-tog{text-transform:none;letter-spacing:0}
+/* smaller than the full-grid badge — this sits in an 11px label row, not a set row */
+.setnow-hd .setnow-badge{width:20px;height:20px;border-radius:50%;background:var(--surface-2);color:var(--label-2);
+  display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex:none}
+.setnow-hd .setnow-badge .icn{font-size:11px}
 .setdone-list{display:flex;flex-direction:column;margin-bottom:12px}
 .setdone{
   display:flex;align-items:center;gap:10px;padding:7px 2px;font-size:14px;color:var(--label-2);
@@ -930,6 +953,12 @@ button.n{border:none;font-family:inherit;cursor:pointer;padding:0}
 .setdone .n{
   width:22px;height:22px;border-radius:50%;background:var(--acc);color:var(--on-acc);flex:none;
   display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;
+}
+/* the rest of the row — label + check — stays its own tap target ("undo"), separate from
+   the warm-up badge so the two gestures never collide */
+.setdone .lb-btn{
+  flex:1;min-width:0;display:flex;align-items:center;gap:10px;
+  border:none;background:none;padding:0;margin:0;font:inherit;color:inherit;text-align:left;cursor:pointer;
 }
 .setdone .lb{flex:1;font-variant-numeric:tabular-nums}
 .setdone .icn{color:var(--acc);font-size:14px}

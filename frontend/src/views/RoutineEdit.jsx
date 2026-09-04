@@ -26,7 +26,9 @@ export default function RoutineEdit() {
 
   // Mutate the routine itself (for cg), or just its ex list (edit). Both prune orphan
   // superset ids and the circuit meta that hangs off them.
-  const editR = fn => update(s => { const rr = s.routines.find(x => x.id === id); fn(rr); cleanupSg(rr.ex); cleanupCg(rr) })
+  // `ts` is stamped on every edit — plan-share resolves a same-name import against it,
+  // so the newer copy wins instead of piling up a duplicate.
+  const editR = fn => update(s => { const rr = s.routines.find(x => x.id === id); fn(rr); rr.ts = Date.now(); cleanupSg(rr.ex); cleanupCg(rr) })
   const edit = fn => editR(rr => fn(rr.ex))
 
   // Reorder is drag-only now (the up/down buttons are gone). Pointer events, so a finger and
@@ -123,14 +125,14 @@ export default function RoutineEdit() {
       <button className="iconbtn" onClick={() => nav('/plan')} aria-label={t('Plan')}><Icon name="chevronLeft" /></button>
       <div style={{ flex: 1, margin: '0 12px' }}>
         <input className="input" defaultValue={r.name} style={{ fontWeight: 600, fontSize: 20, letterSpacing: '-.021em' }}
-          onChange={e => update(s => { s.routines.find(x => x.id === id).name = e.target.value.trim() || t('Routine') })} />
+          onChange={e => update(s => { const rr = s.routines.find(x => x.id === id); rr.name = e.target.value.trim() || t('Routine'); rr.ts = Date.now() })} />
       </div>
-      <button className="iconbtn" aria-label={t('Pick an icon')} onClick={() => glyphPicker(r.emoji, g => update(s => { s.routines.find(x => x.id === id).emoji = g }))}><Icon name={glyphOf(r.emoji)} /></button>
+      <button className="iconbtn" aria-label={t('Pick an icon')} onClick={() => glyphPicker(r.emoji, g => update(s => { const rr = s.routines.find(x => x.id === id); rr.emoji = g; rr.ts = Date.now() }))}><Icon name={glyphOf(r.emoji)} /></button>
     </div>
 
     <div className="sect-b" style={{ marginBottom: 16 }}>
       <SelectRow icon="chartLine" title={t('Progression')} sheetTitle={t('Progression')}
-        value={r.prog || 'linear'} onChange={v => update(s => { s.routines.find(x => x.id === id).prog = v })}
+        value={r.prog || 'linear'} onChange={v => update(s => { const rr = s.routines.find(x => x.id === id); rr.prog = v; rr.ts = Date.now() })}
         options={POLICIES_FOR.reps.map(p => ({ value: p, label: t(POLICY_NAME[p]), subtitle: t(POLICY_DESC[p]) }))} />
     </div>
     <div className="small dim" style={{ margin: '-10px 2px 16px' }}>
