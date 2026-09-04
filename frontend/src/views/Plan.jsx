@@ -6,6 +6,7 @@ import { dayAssignSheet, loadStarterPlan, planToolsSheet, circuitLibrarySheet, c
 import Icon from '../components/Icon.jsx'
 import { Button } from '../components/ui.jsx'
 import { glyphOf, DEFAULT_GLYPH } from '../lib/glyphs.js'
+import { inlineCircuits } from '../lib/circuits.js'
 
 export default function Plan() {
   const nav = useNavigate()
@@ -51,12 +52,21 @@ export default function Plan() {
         <h4 className="sec" style={{ margin: 0 }}>{t('Circuits')}</h4>
         <Button size="sm" variant="tinted" icon="plus" onClick={circuitLibrarySheet}>{t('Manage')}</Button>
       </div>
-      {(S.circuits || []).length
-        ? <div className="list">{S.circuits.map(c => <div key={c.id} className="item" onClick={() => circuitEditSheet(c.id)}>
-          <span className="lrow-i"><Icon name="reset" /></span>
-          <div className="grow"><div className="tt">{c.label || t('Untitled circuit')}</div><div className="ss">{t('{0} rounds', c.rounds)} · {exCount(c.ex.length)}</div></div>
-          <Icon name="chevronRight" className="chev" /></div>)}</div>
-        : <div className="small dim" style={{ margin: '0 2px' }}>{t('Reusable finishers — drop them into any routine.')}</div>}
+      {(() => {
+        const inline = inlineCircuits(S)
+        const saved = S.circuits || []
+        if (!saved.length && !inline.length) return <div className="small dim" style={{ margin: '0 2px' }}>{t('Reusable finishers — drop them into any routine.')}</div>
+        return <div className="list">
+          {saved.map(c => <div key={c.id} className="item" onClick={() => circuitEditSheet(c.id)}>
+            <span className="lrow-i"><Icon name="reset" /></span>
+            <div className="grow"><div className="tt">{c.label || t('Untitled circuit')}</div><div className="ss">{t('{0} rounds', c.rounds)} · {exCount(c.ex.length)}</div></div>
+            <Icon name="chevronRight" className="chev" /></div>)}
+          {inline.map(c => <div key={c.routineId + c.sg} className="item" onClick={() => nav('/plan/r/' + c.routineId)}>
+            <span className="lrow-i"><Icon name="reset" /></span>
+            <div className="grow"><div className="tt">{c.label}</div><div className="ss">{t('{0} rounds', c.rounds)} · {exCount(c.count)} · {t('in {0}', c.routineName)}</div></div>
+            <Icon name="chevronRight" className="chev" /></div>)}
+        </div>
+      })()}
     </div></div>
   </>
 }

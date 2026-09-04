@@ -63,6 +63,28 @@ export function appendCircuitToRoutine(routine, saved) {
 }
 
 /**
+ * Labeled circuit groups that live inside a routine but aren't (yet) in the saved library.
+ * Surfaced alongside S.circuits so a named finisher shows up in one place regardless of how
+ * it was made. `{ routineId, routineName, sg, label, rounds, count }`, one per group.
+ */
+export function inlineCircuits(S) {
+  const savedIds = new Set((S.circuits || []).map(c => c.id))
+  const out = []
+  ;(S.routines || []).forEach(r => {
+    if (!r.cg) return
+    Object.keys(r.cg).forEach(sg => {
+      const g = r.cg[sg]
+      if (!g || !(g.label || '').trim()) return
+      if (g.cid && savedIds.has(g.cid)) return
+      const members = (r.ex || []).filter(e => e.sg === sg)
+      if (members.length < 2) return
+      out.push({ routineId: r.id, routineName: r.name, sg, label: g.label, rounds: g.rounds || members.length, count: members.length })
+    })
+  })
+  return out
+}
+
+/**
  * Every logged run of the circuits in `S.circuits`, newest first. A run is one workout's
  * worth of a group whose `cg` entry carried a matching `cid` (falls back to matching the
  * label when a run predates cids). `{ cid, label, date, rounds, members:[{id,sets}], reps, sec }`.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { newCircuit, groupToCircuit, applyCircuitToRoutine, appendCircuitToRoutine, circuitRuns } from './circuits.js'
+import { newCircuit, groupToCircuit, applyCircuitToRoutine, appendCircuitToRoutine, circuitRuns, inlineCircuits } from './circuits.js'
 import { EXDB } from './exercises.js'
 
 const A = EXDB.find(e => e.bp !== 'cardio' && e.eq !== 'body weight').id
@@ -47,6 +47,28 @@ describe('appendCircuitToRoutine', () => {
     expect(sg).toBeTruthy()
     expect(r.ex[2].sg).toBe(sg)
     expect(r.cg[sg]).toEqual({ rounds: 4, label: 'burn', cid: 'cY' })
+  })
+})
+
+describe('inlineCircuits', () => {
+  it('lists labeled in-routine circuits that are not in the saved library', () => {
+    const S = {
+      circuits: [],
+      routines: [{ id: 'r1', name: 'Legs', ex: [{ id: A }, { id: B, sg: 'g' }, { id: C, sg: 'g' }], cg: { g: { rounds: 4, label: 'Leg burner' } } }]
+    }
+    const out = inlineCircuits(S)
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ routineId: 'r1', routineName: 'Legs', label: 'Leg burner', rounds: 4, count: 2 })
+  })
+  it('skips unlabeled groups and groups already linked to a saved circuit', () => {
+    const S = {
+      circuits: [{ id: 'cS', label: 'Saved', rounds: 3, ex: [] }],
+      routines: [{ id: 'r1', name: 'A', ex: [{ id: A, sg: 'g1' }, { id: B, sg: 'g1' }, { id: A, sg: 'g2' }, { id: B, sg: 'g2' }], cg: {
+        g1: { rounds: 3, label: '' },                 // no label
+        g2: { rounds: 3, label: 'Saved', cid: 'cS' }  // already saved
+      } }]
+    }
+    expect(inlineCircuits(S)).toEqual([])
   })
 })
 

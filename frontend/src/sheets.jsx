@@ -17,7 +17,7 @@ import BodyMap from './components/BodyMap.jsx'
 import { loadOfWorkouts } from './lib/muscles.js'
 import { parseImport, mergeImport } from './lib/import-csv.js'
 import { buildPlanBundle, parsePlan, mergePlan, printPlan } from './lib/plan-share.js'
-import { newCircuit, cleanCircuitEx, groupToCircuit } from './lib/circuits.js'
+import { newCircuit, cleanCircuitEx, groupToCircuit, inlineCircuits } from './lib/circuits.js'
 import { estimate1RM, best1RM, is1RMRecord, REP_CAP } from './lib/onerm.js'
 import { nextPrescription, applyPrescription, policyFor, defaultIncrement, POLICIES_FOR, POLICY_NAME, POLICY_DESC, MAX_BW_SETS } from './lib/progression.js'
 import { MOBILE, shareExport } from './lib/mobile.js'
@@ -727,24 +727,50 @@ function PlanImport({ bundle, close }) {
 export const circuitLibrarySheet = () => ui().openSheet(close => <CircuitLibrary close={close} />)
 
 function CircuitLibrary({ close }) {
-  const list = useStore(s => s.S.circuits) || []
+  const st = useStore(s => s.S)
+  const list = st.circuits || []
+  const inline = inlineCircuits(st)
   const add = () => { const c = newCircuit(''); update(s => { s.circuits.push(c) }); circuitEditSheet(c.id) }
+  // Promote a labeled in-routine circuit into the library, linking it back so it stops
+  // showing as "unsaved" and history can group its runs by id.
+  const saveInline = c => {
+    const nc = groupToCircuit(st.routines.find(r => r.id === c.routineId), c.sg,
+      (st.routines.find(r => r.id === c.routineId)?.ex || []).map((e, i) => (e.sg === c.sg ? i : -1)).filter(i => i >= 0))
+    update(s => {
+      s.circuits.push(nc)
+      const rr = s.routines.find(r => r.id === c.routineId)
+      if (rr?.cg?.[c.sg]) rr.cg[c.sg].cid = nc.id
+    })
+    circuitEditSheet(nc.id)
+  }
   return <>
     <div className="row between" style={{ marginBottom: 6 }}>
       <h3 style={{ margin: 0 }}>{t('Circuits')}</h3>
       <Button size="sm" variant="tinted" icon="plus" onClick={add}>{t('New')}</Button>
     </div>
     <div className="muted small" style={{ marginBottom: 14 }}>{t('Finishers you can drop into any routine, or swap in during a workout.')}</div>
-    {list.length ? <div className="list">{list.map(c => (
-      <div key={c.id} className="item" onClick={() => circuitEditSheet(c.id)}>
-        <span className="lrow-i"><Icon name="reset" /></span>
-        <div className="grow">
-          <div className="tt">{c.label || t('Untitled circuit')}</div>
-          <div className="ss">{t('{0} rounds', c.rounds)} · {exCount(c.ex.length)}</div>
+    {(list.length || inline.length) ? <div className="list">
+      {list.map(c => (
+        <div key={c.id} className="item" onClick={() => circuitEditSheet(c.id)}>
+          <span className="lrow-i"><Icon name="reset" /></span>
+          <div className="grow">
+            <div className="tt">{c.label || t('Untitled circuit')}</div>
+            <div className="ss">{t('{0} rounds', c.rounds)} · {exCount(c.ex.length)}</div>
+          </div>
+          <Icon name="chevronRight" className="chev" />
         </div>
-        <Icon name="chevronRight" className="chev" />
-      </div>
-    ))}</div> : <div className="empty"><div className="ico"><Icon name="reset" /></div>{t('No circuits yet.')}</div>}
+      ))}
+      {inline.map(c => (
+        <div key={c.routineId + c.sg} className="item" onClick={() => saveInline(c)}>
+          <span className="lrow-i"><Icon name="reset" /></span>
+          <div className="grow">
+            <div className="tt">{c.label}</div>
+            <div className="ss">{t('{0} rounds', c.rounds)} · {exCount(c.count)} · {t('in {0}', c.routineName)}</div>
+          </div>
+          <span className="tag">{t('Save')}</span>
+        </div>
+      ))}
+    </div> : <div className="empty"><div className="ico"><Icon name="reset" /></div>{t('No circuits yet.')}</div>}
   </>
 }
 
