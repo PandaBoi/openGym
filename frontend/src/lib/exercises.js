@@ -15,16 +15,21 @@ export function equipmentOf(list) {
   return Object.keys(c).sort((a, b) => c[b] - c[a] || (a < b ? -1 : 1))
 }
 
-// Custom (user-created) exercises live in synced state S.customEx (issue #11) and are
-// merged into the id index here so every EXIDX[id] lookup keeps working unchanged.
+// Custom (user-created) exercises live in synced state S.customEx (issue #11). They can
+// arrive under-specified — a plan import (see plan-share) only carries name + body part —
+// so backfill the string fields the catalogue and search rely on. A missing `tg`/`eq` used
+// to crash the exercise picker's search (`e.tg.includes(q)` on undefined).
+export const normCustom = e => ({ ...e, custom: true, tg: e.tg || '', eq: e.eq || 'custom' })
+
+// Merged into the id index here so every EXIDX[id] lookup keeps working unchanged.
 let customIds = []
 export function registerCustom(list) {
   customIds.forEach(id => delete EXIDX[id])
   customIds = (list || []).map(e => e.id)
-  ;(list || []).forEach(e => { EXIDX[e.id] = e })
+  ;(list || []).forEach(e => { EXIDX[e.id] = normCustom(e) })
 }
 // Full searchable catalogue — customs first so your own exercises are easy to find.
-export const allExercises = st => [...(st.customEx || []), ...EXDB]
+export const allExercises = st => [...(st.customEx || []).map(normCustom), ...EXDB]
 
 // Media normally sits next to the app (img/ and gif/, mounted into the web container).
 // A build can point them somewhere else — the demo build pulls them off a CDN instead of

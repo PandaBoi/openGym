@@ -172,7 +172,7 @@ export function mergePlan(s, bundle, { schedule, routineIds, circuits = true } =
     if (same) { exIdMap[c.id] = same.id; return }
     const nid = uid()
     exIdMap[c.id] = nid
-    s.customEx.push({ id: nid, n: c.n, bp: c.bp, ...(c.desc ? { desc: c.desc } : {}) })
+    s.customEx.push({ id: nid, n: c.n, bp: c.bp, tg: '', eq: 'custom', custom: true, ...(c.desc ? { desc: c.desc } : {}) })
   })
   // Saved circuits first, so routine circuit meta can be remapped onto the fresh ids.
   s.circuits = s.circuits || []
