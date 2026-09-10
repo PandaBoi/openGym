@@ -21,6 +21,9 @@ import { newCircuit, cleanCircuitEx, groupToCircuit, inlineCircuits } from './li
 import { estimate1RM, best1RM, is1RMRecord, REP_CAP } from './lib/onerm.js'
 import { nextPrescription, applyPrescription, policyFor, defaultIncrement, POLICIES_FOR, POLICY_NAME, POLICY_DESC, MAX_BW_SETS } from './lib/progression.js'
 import { MOBILE, shareExport } from './lib/mobile.js'
+import { exerciseSessions, exerciseSummary } from './lib/exercise-stats.js'
+import { displayScale, scaleName, toScale } from './lib/effort.js'
+import LineChart from './components/LineChart.jsx'
 
 const S = () => useStore.getState().S
 const update = (...a) => useStore.getState().update(...a)
@@ -291,6 +294,7 @@ function ExerciseDetail({ ex, close }) {
   const st = useStore(s => s.S)
   const last = lastEntryFor(st, ex.id)
   const best = bestWeightFor(st, ex.id)
+  const logged = exerciseSessions(st, ex.id).length
   return <>
     <h3 className="capitalize">{ex.n}</h3>
     <Media ex={ex} />
@@ -302,6 +306,7 @@ function ExerciseDetail({ ex, close }) {
     </div>
     {ex.desc && <div className="exnote">{ex.desc}</div>}
     {best > 0 && <div className="small row" style={{ marginBottom: 6, gap: 5 }}><Icon name="trophy" style={{ fontSize: 14, color: 'var(--yellow)' }} />{t('Best:')} <b className="accent">{fmtNum(best)} {st.unit}</b>{last ? ` · ${t('last')} ${fmtDate(last.d)}: ${last.sets.map(s => setLabel(ex.id, s, last.target)).join(', ')}` : ''}</div>}
+    {logged > 0 && <Button icon="history" style={{ margin: '4px 0' }} onClick={() => exerciseStatsSheet(ex)}>{t('History & progress')} · {t(logged === 1 ? '{0} session' : '{0} sessions', logged)}</Button>}
     <Button variant="primary" icon="plus" style={{ margin: '10px 0 4px' }} onClick={() => addToRoutineSheet(ex)}>{t('Add to my plan')}</Button>
     {ex.custom && <div className="row" style={{ gap: 8, marginTop: 8 }}>
       <Button icon="pencil" style={{ flex: 1 }} onClick={() => { close(); customExSheet(ex) }}>{t('Edit')}</Button>
@@ -312,6 +317,77 @@ function ExerciseDetail({ ex, close }) {
   </>
 }
 export const exerciseDetailSheet = ex => ui().openSheet(close => <ExerciseDetail ex={ex} close={close} />)
+
+/* ===================== exercise history & progress ===================== */
+// Everything logged for one lift, in one place: a session-by-session log and the progress
+// curves, reachable straight from the exercise. The Stats screen's "exercise progress" card
+// is the same data zoomed out across all exercises — this is the single-exercise drill-in.
+function ExerciseStats({ ex, close }) {
+  const st = useStore(s => s.S)
+  const [tab, setTab] = useState('log')
+  const [metric, setMetric] = useState('top')
+  const sessions = exerciseSessions(st, ex.id)       // oldest → newest
+  const sum = exerciseSummary(st, ex.id)
+  const mode = sum ? sum.mode : 'reps'
+  const topUnit = mode === 'cardio' ? 'km/h' : mode === 'time' ? 's' : st.unit
+  const kind = displayScale(st), hd = scaleName(kind)
+  const topLabel = mode === 'cardio' ? t('Top speed') : mode === 'time' ? t('Longest hold') : t('Top set')
+
+  const topPts = sessions.filter(s => s.top > 0).map(s => ({ t: s.t, y: s.top, d: s.d }))
+  const e1Pts = sessions.filter(s => s.e1rm > 0).map(s => ({ t: s.t, y: s.e1rm, d: s.d }))
+  const volPts = sessions.filter(s => s.vol > 0).map(s => ({ t: s.t, y: s.vol, d: s.d }))
+  const effPts = sessions.filter(s => s.rir != null).map(s => ({ t: s.t, y: toScale(kind, s.rir), d: s.d }))
+  const opts = [{ value: 'top', label: topLabel }]
+  if (e1Pts.length > 1) opts.push({ value: 'e1rm', label: t('Est. 1RM') })
+  if (mode === 'reps' && volPts.length > 1) opts.push({ value: 'vol', label: t('Volume') })
+  if (effPts.length >= 3) opts.push({ value: 'effort', label: t('Effort') })
+  const cur = opts.some(o => o.value === metric) ? metric : 'top'
+  const chart = cur === 'e1rm' ? { points: e1Pts, unit: st.unit, color: 'var(--blue)' }
+    : cur === 'vol' ? { points: volPts, unit: st.unit, color: 'var(--blue)' }
+      : cur === 'effort' ? { points: effPts, unit: hd, color: 'var(--yellow)', invert: kind === 'rir' }
+        : { points: topPts, unit: topUnit, color: 'var(--blue)' }
+  const chartNote = cur === 'e1rm' ? t('Estimated 1RM per workout') : cur === 'vol' ? t('Volume per workout')
+    : cur === 'effort' ? t('Average effort per workout')
+      : mode === 'cardio' ? t('Top speed per workout') : mode === 'time' ? t('Longest hold per workout') : t('Best set weight per workout')
+
+  return <>
+    <h3 className="capitalize">{ex.n}</h3>
+    {!sum ? <div className="muted small">{t('Finish a workout with this exercise to see its history.')}</div> : <>
+      <div className="muted small" style={{ marginBottom: 12 }}>
+        {[t(sessions.length === 1 ? '{0} session' : '{0} sessions', sessions.length),
+          t('{0} sets', sum.totalSets),
+          t('since {0}', fmtDate(sum.first, true))].join(' · ')}
+      </div>
+      <div className="tiles" style={{ marginBottom: 12 }}>
+        <div className="tile"><div className="l"><Icon name="trophy" />{topLabel}</div><div className="v" style={{ fontSize: 20 }}>{sum.bestTop > 0 ? fmtNum(sum.bestTop) + ' ' + topUnit : '—'}</div></div>
+        {mode === 'reps' && <div className="tile"><div className="l"><Icon name="dumbbell" />{t('Est. 1RM')}</div><div className="v" style={{ fontSize: 20 }}>{sum.bestE1rm > 0 ? fmtNum(sum.bestE1rm) + ' ' + st.unit : '—'}</div></div>}
+        <div className="tile"><div className="l"><Icon name="calendar" />{t('Last')}</div><div className="v" style={{ fontSize: 20 }}>{fmtDate(sum.last)}</div></div>
+      </div>
+
+      <Segmented value={tab} onChange={setTab} options={[{ value: 'log', label: t('Log') }, { value: 'charts', label: t('Charts') }]} />
+
+      {tab === 'charts' ? <div style={{ marginTop: 12 }}>
+        {opts.length > 1 && <Segmented className="seg-range" value={cur} onChange={setMetric} options={opts} />}
+        <div className="chart"><LineChart points={chart.points} h={170} unit={chart.unit} color={chart.color} invert={!!chart.invert} /></div>
+        <div className="small dim" style={{ marginTop: 8 }}>{chartNote}</div>
+      </div> : <div style={{ marginTop: 6 }}>
+        {[...sessions].reverse().map((s, i) => <div key={i} className="exlog-row" onClick={() => workoutDetailSheet(s.w)}>
+          <div className="row between" style={{ alignItems: 'baseline' }}>
+            <b className="small">{fmtDate(s.d, true)}</b>
+            <span className="small dim capitalize">{s.w.name}{s.pr && <span className="pr" style={{ marginLeft: 6 }}><Icon name="trophy" />PR</span>}</span>
+          </div>
+          <div className="small" style={{ color: 'var(--label-2)', marginTop: 2 }}>
+            {s.sets.map(x => setLabel(ex.id, x, s.target)).join('  ·  ') || t('no sets')}
+          </div>
+          {(s.vol > 0 || s.rir != null) && <div className="small dim" style={{ marginTop: 2 }}>
+            {[s.vol > 0 ? fmtVol(s.vol, st.unit) : null, s.rir != null ? hd + ' ' + fmtNum(toScale(kind, s.rir)) : null].filter(Boolean).join(' · ')}
+          </div>}
+        </div>)}
+      </div>}
+    </>}
+  </>
+}
+export const exerciseStatsSheet = ex => ui().openSheet(close => <ExerciseStats ex={ex} close={close} />)
 
 /* ============================ add to routine ============================ */
 function AddToRoutine({ ex, close }) {

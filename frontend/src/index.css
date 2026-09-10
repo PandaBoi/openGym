@@ -391,6 +391,11 @@ h4.sec{
   background:var(--surface);border-radius:var(--r);padding:13px 15px;
   line-height:1.45;white-space:pre-wrap;font-size:15px;margin-bottom:10px;color:var(--label-2);
 }
+.exlog-row{
+  padding:10px 0;border-bottom:var(--hair) solid var(--sep);cursor:pointer;
+}
+.exlog-row:active{opacity:.6}
+.exlog-row:last-child{border-bottom:0}
 
 /* --- search field --- */
 .searchf{position:relative;display:flex;align-items:center}
