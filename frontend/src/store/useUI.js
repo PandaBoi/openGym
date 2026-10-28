@@ -16,6 +16,7 @@ let timerTick = null
 let workInt = null
 let workTick = null
 let workDone = null
+const WORK_PREP = 5   // seconds of "get ready" before a timed hold starts counting
 
 export const useUI = create((set, get) => ({
   sheets: [],          // { id, render:(close)=>JSX, kind:'sheet'|'center', locked }
@@ -83,17 +84,27 @@ export const useUI = create((set, get) => ({
      and a plank does not need a notification you are staring at anyway).
      `onDone(elapsedSec)` is called both when the countdown reaches zero and on an early
      finish; the elapsed time is what actually gets logged, so stopping at 0:38 of a 0:45
-     hold records 0:38 rather than crediting the full target. */
+     hold records 0:38 rather than crediting the full target.
+     A short "get ready" countdown (`prep`) runs first, so tapping start doesn't eat the
+     seconds it takes to get into position — the hold clock only starts once it hits 0. */
   startWork(sec, label, onDone) {
     get().stopWork()
     get().stopRest()
     const total = Math.max(1, Math.round(sec) || 1)
-    const endsAt = Date.now() + total * 1000
     workDone = onDone
-    set({ work: { left: total, total, endsAt, label } })
+    set({ work: { left: total, total, endsAt: null, label, prep: WORK_PREP, prepEnds: Date.now() + WORK_PREP * 1000 } })
+    beep(useStore.getState().S.sound, 660, 0.1)
     workTick = () => {
       const wk = get().work
       if (!wk) return
+      if (wk.prep) {
+        const prep = Math.max(0, Math.round((wk.prepEnds - Date.now()) / 1000))
+        if (prep === wk.prep) return
+        if (prep <= 0) return get().beginHold()
+        beep(useStore.getState().S.sound, 660, 0.1)
+        set({ work: { ...wk, prep } })
+        return
+      }
       const left = Math.max(0, Math.round((wk.endsAt - Date.now()) / 1000))
       if (left === wk.left) return
       const snd = useStore.getState().S.sound
@@ -111,10 +122,17 @@ export const useUI = create((set, get) => ({
     workInt = setInterval(workTick, 1000)
     document.addEventListener('visibilitychange', workTick)
   },
+  // End of the get-ready countdown (or skipped): the hold clock starts now.
+  beginHold() {
+    const wk = get().work
+    if (!wk || !wk.prep) return
+    beep(useStore.getState().S.sound, 1320, 0.25); vibrate(80)
+    set({ work: { ...wk, prep: 0, endsAt: Date.now() + wk.total * 1000 } })
+  },
   // Ended the hold early — log what was actually held.
   finishWorkEarly() {
     const wk = get().work
-    if (!wk) return
+    if (!wk || wk.prep) return
     const elapsed = Math.max(1, wk.total - wk.left)
     const done = workDone
     vibrate(30)

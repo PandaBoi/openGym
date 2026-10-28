@@ -9,7 +9,7 @@ import { beep, vibrate } from '../lib/sound.js'
 import { t } from '../lib/i18n.js'
 import { api } from '../lib/api.js'
 import Media from '../components/Media.jsx'
-import { startFlow, exercisePicker, exConfigSheet, exerciseDetailSheet, topWeightSheet, finishWorkout, workoutCompleteSheet, confirmSheet, circuitPickSheet } from '../sheets.jsx'
+import { startFlow, exercisePicker, exConfigSheet, exerciseDetailSheet, topWeightSheet, finishWorkout, workoutCompleteSheet, confirmSheet, circuitPickSheet, holdTimeSheet, fmtHold } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
 import { Button, Check, NumberField } from '../components/ui.jsx'
 import { nextPrescription, applyPrescription } from '../lib/progression.js'
@@ -127,12 +127,19 @@ function ExerciseBlock({ entryIdx, compact, focus, onToggle, onField, onAddSet, 
   }
   // Uses the shared stepper markup so a set row picks up the same control styling
   // as every other +/- field in the app.
-  const cell = (s, i, col, cls) => (
+  // A hold's seconds open the hold-time sheet (presets + exact stepper) rather than being
+  // typed into the row. In the grid (`bare`) that's all the cell is — a "1:30" chip, no −/+,
+  // which is what leaves room for the weight beside it on a phone-width row.
+  const holdBtn = (s, i) => <button className="num hold-btn" aria-label={t('Hold time')}
+    onClick={() => holdTimeSheet(s.sec, v => onField(i, 'sec', v))}>{fmtHold(s.sec)}</button>
+  const cell = (s, i, col, cls, bare) => col.f === 'sec' && bare
+    ? <div className={'stp hold ' + cls}>{holdBtn(s, i)}</div>
+    : (
     <div className={'stp ' + cls}>
       <button aria-label="Decrease" onClick={() => bump(s, i, col, -1)}><Icon name="minus" /></button>
       {/* a typed effort is capped — there is no RPE 12, and 12 reps in reserve is a warm-up */}
-      <span className="val"><NumberField decimal={col.dec} nullable={col.opt} value={s[col.f] ?? ''}
-        onChange={v => onField(i, col.f, col.eff ? capEffort(col.eff, v) : v)} /></span>
+      <span className="val">{col.f === 'sec' ? holdBtn(s, i) : <NumberField decimal={col.dec} nullable={col.opt} value={s[col.f] ?? ''}
+        onChange={v => onField(i, col.f, col.eff ? capEffort(col.eff, v) : v)} />}</span>
       <button aria-label="Increase" onClick={() => bump(s, i, col, 1)}><Icon name="plus" /></button>
     </div>
   )
@@ -239,15 +246,15 @@ function ExerciseBlock({ entryIdx, compact, focus, onToggle, onField, onAddSet, 
             Reserves the start-set column whenever any row is timed, not just when the exercise
             defaults to it — an overridden row still needs somewhere to put its play button. */}
         {(() => { const anyTimed = !cardio && entry.sets.some(s => effModeOf(s) === 'time'); return (
-          <div className={'sethead' + (col3 ? ' eff3' : '')}><span className="n-sp" />{onSetModeChange && !cardio && <span className="mode-sp" />}<span className="w-sp">{col1.hd}</span>{col2 && <span className="r-sp">{col2.hd}</span>}{col3 && <span className="eff-sp">{col3.hd}</span>}{anyTimed && <span className="ck-sp" />}<span className="ck-sp" /></div>
+          <div className={'sethead' + (col3 ? ' eff3' : '')}><span className="n-sp" />{onSetModeChange && !cardio && <span className="mode-sp" />}<span className={'w-sp' + (col1.f === 'sec' ? ' hold' : '')}>{col1.hd}</span>{col2 && <span className="r-sp">{col2.hd}</span>}{col3 && <span className="eff-sp">{col3.hd}</span>}{anyTimed && <span className="ck-sp" />}<span className="ck-sp" /></div>
         ) })()}
         {entry.sets.map((s, i) => {
           const rowTimed = effModeOf(s) === 'time'
           const { c1, c2, c3 } = colsFor(effModeOf(s))
-          return <div key={i} className={'setrow' + (s.done ? ' done' : '') + (s.wu ? ' wu' : '') + (s.skip ? ' skip' : '') + (c3 ? ' eff3' : '')}>
+          return <div key={i} className={'setrow' + (rowTimed ? ' timed' : '') + (s.done ? ' done' : '') + (s.wu ? ' wu' : '') + (s.skip ? ' skip' : '') + (c3 ? ' eff3' : '')}>
             <WuBadge i={i} />
             {onSetModeChange && !cardio && <SetModeBtn i={i} />}
-            {cell(s, i, c1, 'w')}
+            {cell(s, i, c1, 'w', true)}
             {c2 && cell(s, i, c2, 'r')}
             {c3 && cell(s, i, c3, 'eff')}
             {/* A timed set is started, not typed: the timer counts the hold down and checks the

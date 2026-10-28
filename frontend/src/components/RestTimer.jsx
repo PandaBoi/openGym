@@ -14,7 +14,7 @@ const clock = sec => Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '
 export default function RestTimer() {
   const timer = useUI(s => s.timer)
   const work = useUI(s => s.work)
-  const { addRest, stopRest, finishWorkEarly, stopWork } = useUI()
+  const { addRest, stopRest, finishWorkEarly, stopWork, beginHold } = useUI()
   const on = work || timer
   const loc = useLocation()
   // The bar is fixed above the tab bar and floats over whatever is beneath it — during a
@@ -30,6 +30,19 @@ export default function RestTimer() {
   const jump = loc.pathname === '/workout' ? undefined : () => nav('/workout')
   const stop = e => e.stopPropagation()
 
+  // The few seconds before a hold starts counting: a plain countdown to get into position.
+  // "Go" skips straight to the hold for anyone already set.
+  if (work && work.prep) return (
+    <div id="timer" className="working prep" onClick={jump} role={jump ? 'button' : undefined}>
+      <div className="t">{work.prep}</div>
+      <div className="grow">
+        <div className="lbl">{t('Get ready')}{work.label ? ' — ' + work.label : ''}</div>
+        <div className="bar"><i style={{ width: (work.prep / 5) * 100 + '%' }} /></div>
+      </div>
+      <span onClick={stop}><Button size="sm" onClick={stopWork}>{t('Cancel')}</Button></span>
+      <span onClick={stop}><Button size="sm" variant="primary" icon="play" onClick={beginHold}>{t('Go')}</Button></span>
+    </div>
+  )
   if (work) return (
     <div id="timer" className="working" onClick={jump} role={jump ? 'button' : undefined}>
       <div className="t">{clock(work.left)}</div>
