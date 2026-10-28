@@ -53,6 +53,25 @@ function Shell() {
   // bound to the workout, not to the route — checking Stats mid-session keeps the screen on
   useWakeLock(!!S.active && S.keepAwake !== false)
 
+  // Hardware back button (Android): close the top sheet if one's open, otherwise step back
+  // through the in-app route history, and only let the OS default (exit) fire once there's
+  // nowhere left to go back to — matches what every other Android app does with `back`.
+  useEffect(() => {
+    if (!MOBILE) return
+    let remove
+    ;(async () => {
+      const { App: CapApp } = await import('@capacitor/app')
+      const sub = await CapApp.addListener('backButton', ({ canGoBack }) => {
+        const { sheets, closeSheet } = useUI.getState()
+        if (sheets.length) { closeSheet(sheets[sheets.length - 1].id); return }
+        if (canGoBack) navigate(-1)
+        else CapApp.exitApp()
+      })
+      remove = () => sub.remove()
+    })()
+    return () => remove && remove()
+  }, [navigate])
+
   // On-device voice model: with voice enabled, load it at boot and prime its KV cache
   // (the static tool-list prefix) so the first command in a workout skips prompt-eval.
   // It then stays resident for the app session (~0.9 GB for the default Hammer 1.5B).

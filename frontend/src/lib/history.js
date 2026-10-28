@@ -90,10 +90,12 @@ const effortTail = s => {
 }
 
 // One-line summary of a logged set. `cfg` carries the mode when the caller has it (a routine
-// entry or a workout entry); passing an id alone keeps the old body-part behaviour.
+// entry or a workout entry); passing an id alone keeps the old body-part behaviour. A set
+// switched to its own mode mid-session (s.mode) reads back as what it actually was, not as
+// whatever the exercise defaults to.
 export function setLabel(id, s, cfg) {
   const c = cfg || { id }
-  const mode = modeOf(c)
+  const mode = (s && s.mode) || modeOf(c)
   if (mode === 'cardio') return `${s.min || 0} min @ ${fmtNum(s.speed || 0)} km/h`
   if (mode === 'time') return fmtSec(s.sec) + (s.w > 0 ? ` · ${fmtNum(s.w)}` : '')
   // Bodyweight reads as what you did — "12", or "+10 × 12" once there is a belt involved —
@@ -231,6 +233,18 @@ export function buildSets(S, cfg) {
     sets.push(tag({ w, r: usable ? usable.r : cfg.reps, done: false }, i))
   }
   return sets
+}
+// Carry a routine-config change into an in-progress workout for the same exercise. Editing
+// the plan while a session is live (the plan screen can reach a running workout through
+// `S.active.routineId`) must not rewrite what already happened: every logged set stands as
+// its own historical fact. So only the sets still ahead of you are touched — rebuilt fresh
+// against the new config, same as starting the exercise would — and if the new plan calls
+// for fewer sets than you have already logged, there is nothing left to fill; the logged
+// sets stand on their own rather than being trimmed.
+export function retargetSets(S, cfg, sets) {
+  const done = sets.filter(s => s.done)
+  const fresh = buildSets(S, cfg)
+  return fresh.length > done.length ? [...done, ...fresh.slice(done.length)] : done
 }
 export function workoutVolume(w) {
   let v = 0

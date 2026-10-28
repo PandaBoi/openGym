@@ -102,9 +102,16 @@ export function readSession(entry, fallback) {
   const target = (entry && entry.target) || fallback || {}
   const mode = modeOf({ ...target, id: entry && entry.id })
   // Warm-up rows (s.wu) never count toward progression — not the rep check, not the
-  // set count, not the session weight. `target.sets` is the working-set count.
+  // set count, not the session weight. `target.sets` is the working-set count. A set
+  // switched to a different mode than the exercise's own (s.mode, from flipping just
+  // that one set between reps and time mid-session) is excluded the same way: its reps
+  // or hold time answer a different question than the policy is asking, so folding it in
+  // would score the session against numbers it never produced. `s.skip` is the general
+  // case of the same idea with none of the warm-up meaning: a real, numbered working set
+  // — a drop set, a set done off-plan, one you just don't trust — that still shouldn't
+  // speak for whether the exercise moves up, holds, or deloads.
   const raw = (entry && entry.sets) || []
-  let sets = raw.filter(s => !s.wu)
+  let sets = raw.filter(s => !s.wu && !s.skip && (!s.mode || s.mode === mode))
   // History logged before warm-ups could be flagged (imported FitNotes, sessions from
   // before warm-up support) has no per-session target and no wu marks, so a ramp-up set
   // is scored like a working set and stacks up false stalls. Read it the way the plan
@@ -262,7 +269,7 @@ export function nextPrescription(S, cfg, routine) {
 export function applyPrescription(sets, p) {
   if (!p || p.kind === 'off' || p.kind === 'first') return sets
   const out = sets.map(s => {
-    if (s.done || s.wu) return s   // warm-ups keep whatever buildSets seeded them
+    if (s.done || s.wu || s.skip) return s   // warm-ups and excluded sets keep whatever buildSets seeded them
     const o = { ...s }
     if (p.weight != null) o.w = p.weight
     if (p.reps != null) o.r = p.reps

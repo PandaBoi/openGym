@@ -4,7 +4,7 @@ import { useStore } from '../store/useStore.js'
 import { exOr } from '../lib/exercises.js'
 import { uid } from '../lib/format.js'
 import { t } from '../lib/i18n.js'
-import { supersetUnits, cleanupSg, cleanupCg, circuitOf, exLine, defaultConfig } from '../lib/history.js'
+import { supersetUnits, cleanupSg, cleanupCg, circuitOf, exLine, defaultConfig, retargetSets } from '../lib/history.js'
 import { Thumb } from '../components/Media.jsx'
 import { glyphPicker, exercisePicker, exConfigSheet, confirmSheet, circuitPickSheet } from '../sheets.jsx'
 import { groupToCircuit, applyCircuitToRoutine, appendCircuitToRoutine } from '../lib/circuits.js'
@@ -30,6 +30,18 @@ export default function RoutineEdit() {
   // so the newer copy wins instead of piling up a duplicate.
   const editR = fn => update(s => { const rr = s.routines.find(x => x.id === id); fn(rr); rr.ts = Date.now(); cleanupSg(rr.ex); cleanupCg(rr) })
   const edit = fn => editR(rr => fn(rr.ex))
+  // A plan edit should not sit invisible until the next time this routine is run — if it's
+  // the routine actually driving a workout in progress right now, carry the change in. Only
+  // the sets not yet logged move (retargetSets); everything already checked off this session
+  // stands as what it was, same principle as changeMode mid-workout.
+  const syncActive = (exId, cfg) => update(s => {
+    const a = s.active
+    if (!a || a.routineId !== id) return
+    const ae = a.entries.find(x => x.id === exId)
+    if (!ae) return
+    ae.target = cfg
+    ae.sets = retargetSets(s, cfg, ae.sets)
+  })
 
   // Reorder is drag-only now (the up/down buttons are gone). Pointer events, so a finger and
   // a mouse behave the same, and the handle's touch-action:none keeps a drag from scrolling
@@ -166,7 +178,7 @@ export default function RoutineEdit() {
             onClick={() => swapCircuit(e.sg, unit)}><Icon name="reset" />{t('Swap circuit')}</button>}
         </div>}
         <div className={'item' + (inSS.has(i) ? ' in-ss' : '')} onClick={() => {
-          exConfigSheet(ex, e, cfg => edit(x => { x[i] = { id: x[i].id, sg: x[i].sg, ...cfg } }), () => edit(x => x.splice(i, 1)), r, () => swapAt(i))
+          exConfigSheet(ex, e, cfg => { edit(x => { x[i] = { id: x[i].id, sg: x[i].sg, ...cfg } }); syncActive(e.id, { id: e.id, ...cfg }) }, () => edit(x => x.splice(i, 1)), r, () => swapAt(i))
         }}>
           <Thumb ex={ex} />
           <div className="grow"><div className="tt capitalize">{ex.n}</div><div className="ss">{exLine(e, S.unit)}</div></div>

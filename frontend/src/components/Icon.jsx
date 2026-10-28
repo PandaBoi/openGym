@@ -107,6 +107,7 @@ const P = {
   // what reads as a finish line at 16px
   flag: <><path d="M6 20.4V4.2" /><path d="M6.4 5.2h13v9.2h-13" /><path d="M12.9 5.2v9.2M6.4 9.8h13" /></>,
   chartLine: <path d="M3.6 20.2V4.4M3.6 20.2h16.8M6.4 16.4l3.9-4.8 3.1 2.7 5.2-6.6" />,
+  chartLineOff: <><path d="M3.6 20.2V4.4M3.6 20.2h16.8M6.4 16.4l3.9-4.8 3.1 2.7 5.2-6.6" /><path d="m4 4 16 16" /></>,
   dot: <circle cx="12" cy="12" r="4.2" fill="currentColor" stroke="none" />,
   history: <><path d="M4.5 12.2a7.6 7.6 0 1 0 2.5-5.6" /><path d="M4.1 4.4v4.3h4.3" /><path d="M12 8.3v4.2l3.1 1.9" /></>,
   signOut: <><path d="M14.2 4.6H7a1.9 1.9 0 0 0-1.9 1.9v11a1.9 1.9 0 0 0 1.9 1.9h7.2" /><path d="m16.8 8.4 3.6 3.6-3.6 3.6M20.4 12H10.2" /></>,

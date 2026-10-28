@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { exOr } from '../lib/exercises.js'
-import { effectiveRoutine, lastEntryFor, bestWeightFor, buildSets, setsDoneActive, supersetUnits, unitOf, setLabel, modeOf, isBw, isPerSide, sideReps, repStep, EFFORT, effortOf, stepEffort, capEffort, circuitOf, circuitRound } from '../lib/history.js'
+import { effectiveRoutine, lastEntryFor, bestWeightFor, buildSets, setsDoneActive, supersetUnits, unitOf, setLabel, modeOf, isBw, isPerSide, sideReps, repStep, EFFORT, effortOf, stepEffort, capEffort, circuitOf, circuitRound, defaultConfig } from '../lib/history.js'
 import { fmtNum, fmtDate, todayISO, exCount, DAYN } from '../lib/format.js'
 import { beep, vibrate } from '../lib/sound.js'
 import { t } from '../lib/i18n.js'
@@ -57,7 +57,7 @@ function Elapsed({ start }) {
    `focus` mode logs one set at a time: finished sets collapse to a read-only strip, the set
    in front of you gets big fields and a full-width "Log set" button. "Show all sets" flips
    back to the full grid for anyone who plans the whole exercise up front. */
-function ExerciseBlock({ entryIdx, compact, focus, onToggle, onField, onAddSet, onRemoveSet, onAddWarmup, onStartTimed, onSwap, onWarmup, hideSetButtons, removeDisabled, sharedSet }) {
+function ExerciseBlock({ entryIdx, compact, focus, onToggle, onField, onAddSet, onRemoveSet, onAddWarmup, onStartTimed, onSwap, onFlag, onModeChange, onSetModeChange, onAddWeight, hideSetButtons, sharedSet }) {
   const S = useStore(s => s.S)
   const working = useUI(s => s.work)
   const [showAll, setShowAll] = useState(false)
@@ -78,7 +78,12 @@ function ExerciseBlock({ entryIdx, compact, focus, onToggle, onField, onAddSet, 
   // config brings it back, now labelled as the addition it is.
   const cfg = { ...(entry.target || {}), id: entry.id }
   const bw = !cardio && isBw(cfg)
-  const added = bw && entry.sets.some(s => s.w > 0)
+  // A bodyweight set only shows the weight column once there's a belt's worth of load to
+  // describe — but that used to mean *only* once a set already had w>0, and nothing in the
+  // live workout could ever put a number there to begin with (the column needed to exist
+  // first). `entry.weighted` is the explicit "yes, show it" the Add weight button sets, so a
+  // belt decided on mid-session isn't stuck waiting for the routine editor.
+  const added = bw && (entry.sets.some(s => s.w > 0) || entry.weighted)
   const loadCol = { f: 'w', step: 2.5, dec: true, hd: bw ? t('Added ({0})', S.unit) : t('Weight ({0})', S.unit) }
   // The reps column is the total in every mode, unilateral included — the stepper walks in
   // twos there so the number you land on is one you can actually split evenly.
@@ -95,6 +100,25 @@ function ExerciseBlock({ entryIdx, compact, focus, onToggle, onField, onAddSet, 
   const kind = effortOf(S)
   const eff = EFFORT[kind]
   const col3 = mode === 'reps' && eff ? { ...eff, eff: kind, dec: true, opt: true, hd: t(eff.hd) } : null
+  // A set can be switched to its own mode independent of the exercise (s.mode) — a single
+  // plank set inside an otherwise reps-based accessory move, say. `colsFor` is `col1`/`col2`/
+  // `col3` above, generalised to whichever mode one row actually is instead of the exercise's.
+  // Cardio never carries a per-set override — there is no "per-set cardio exception" to make.
+  const colsFor = rowMode => cardio ? { c1: col1, c2: col2, c3: col3 } : {
+    c1: rowMode === 'time' ? { f: 'sec', step: 5, dec: false, hd: t('Seconds') } : (bw && !added) ? repCol : loadCol,
+    c2: rowMode === 'time' ? ((bw && !added) ? null : loadCol) : (bw && !added) ? null : repCol,
+    c3: rowMode === 'reps' && eff ? { ...eff, eff: kind, dec: true, opt: true, hd: t(eff.hd) } : null
+  }
+  const effModeOf = s => (!cardio && s.mode) || mode
+  // The exercise-level switch (header) and this one (one row) share the same icon language —
+  // dumbbell to go timed, clock to come back — so the two controls read as the same action at
+  // different scope rather than two different features.
+  const SetModeBtn = ({ i, cls }) => {
+    const rowTimed = effModeOf(entry.sets[i]) === 'time'
+    const label = rowTimed ? t('Switch this set to reps') : t('Switch this set to time')
+    return <button className={'iconbtn sm' + (cls ? ' ' + cls : '')} aria-label={label} title={label}
+      onClick={ev => { ev.stopPropagation(); onSetModeChange(i) }}><Icon name={rowTimed ? 'dumbbell' : 'clock'} /></button>
+  }
   // The effort column walks its own scale — see stepEffort. Weight and reps step up from 0
   // with no ceiling, as they always did.
   const bump = (s, i, col, dir) => {
@@ -112,28 +136,38 @@ function ExerciseBlock({ entryIdx, compact, focus, onToggle, onField, onAddSet, 
       <button aria-label="Increase" onClick={() => bump(s, i, col, 1)}><Icon name="plus" /></button>
     </div>
   )
-  // Working-set numbering skips warm-ups: 1, 2, 3… starts after them.
+  // Working-set numbering skips warm-ups: 1, 2, 3… starts after them. An excluded set
+  // (s.skip) still gets a number — it was performed as a working set, it's just not read
+  // by the progression policy — so only `wu` affects the count.
   const wuBefore = i => entry.sets.slice(0, i).filter(x => x.wu).length
   const setNum = i => i + 1 - wuBefore(i)
   const workCount = entry.sets.length - entry.sets.filter(s => s.wu).length
-  // One control for warm-up/working, reused everywhere a set shows its number — the full
-  // grid, the done-list, and the current-set header. Same gesture in all three: tap the
-  // round badge to flip it. A flame replaces the number while it's a warm-up, so the state
-  // reads the same way no matter which view you're in.
+  // One control, reused everywhere a set shows its number — the full grid, the done-list,
+  // the current-set header — for every "this set shouldn't speak for the exercise" reason,
+  // rather than a different button per reason. Tap cycles: working set → warm-up (flame,
+  // doesn't take a numbered slot either) → excluded (chart-off, still numbered, just not
+  // read by progression) → back to working. Same two flags either state could also reach
+  // from the per-set mode switch below; they're independent of each other.
+  const FLAG_CYCLE = [null, 'wu', 'skip']
+  const flagOf = s => (s.wu ? 'wu' : s.skip ? 'skip' : null)
   const WuBadge = ({ i, cls }) => {
-    const wu = !!entry.sets[i].wu
-    const label = wu ? t('Warm-up — tap to make it a working set') : t('Tap to mark as a warm-up')
-    const content = wu ? <Icon name="flame" /> : setNum(i)
-    return onWarmup
-      ? <button className={'n wu-badge' + (wu ? ' wu' : '') + (cls ? ' ' + cls : '')} title={label} aria-label={label}
-        onClick={ev => { ev.stopPropagation(); onWarmup(i, !wu) }}>{content}</button>
-      : <div className={'n' + (wu ? ' wu' : '') + (cls ? ' ' + cls : '')}>{content}</div>
+    const flag = flagOf(entry.sets[i])
+    const label = flag === 'wu' ? t('Warm-up — tap to exclude it instead')
+      : flag === 'skip' ? t('Excluded from progression — tap to make it a working set again')
+        : t('Tap to mark as a warm-up, or again to just exclude it from progression')
+    const content = flag === 'wu' ? <Icon name="flame" /> : flag === 'skip' ? <Icon name="chartLineOff" /> : setNum(i)
+    return onFlag
+      ? <button className={'n wu-badge' + (flag ? ' ' + flag : '') + (cls ? ' ' + cls : '')} title={label} aria-label={label}
+        onClick={ev => { ev.stopPropagation(); onFlag(i, FLAG_CYCLE[(FLAG_CYCLE.indexOf(flag) + 1) % FLAG_CYCLE.length]) }}>{content}</button>
+      : <div className={'n' + (flag ? ' ' + flag : '') + (cls ? ' ' + cls : '')}>{content}</div>
   }
   return <>
     <Media ex={ex} key={entry.id} compact={compact} minimizable />
     <div className="row between" style={{ marginBottom: 6 }}>
       <div style={{ fontSize: compact ? 17 : 20, fontWeight: 600, letterSpacing: '-.02em', textTransform: 'capitalize', lineHeight: 1.2 }}>{ex.n}</div>
       <div style={{ display: 'flex', gap: 2, flex: 'none' }}>
+        {onAddWeight && bw && !added && <button className="iconbtn" aria-label={t('Add weight')} title={t('Add weight')} onClick={onAddWeight}><Icon name="plus" /></button>}
+        {onModeChange && !cardio && <button className="iconbtn" aria-label={timed ? t('Switch to reps') : t('Switch to time')} title={timed ? t('Switch to reps') : t('Switch to time')} onClick={onModeChange}><Icon name={timed ? 'dumbbell' : 'clock'} /></button>}
         {onSwap && <button className="iconbtn" aria-label={t('Swap exercise')} onClick={onSwap}><Icon name="shuffle" /></button>}
         <button className="iconbtn" aria-label={t('Details')} onClick={() => exerciseDetailSheet(ex)}><Icon name="info" /></button>
       </div>
@@ -152,7 +186,7 @@ function ExerciseBlock({ entryIdx, compact, focus, onToggle, onField, onAddSet, 
       <Icon name={plan.kind === 'up' ? 'arrowUp' : plan.kind === 'deload' ? 'arrowDown' : 'lightbulb'} />
       <span>{t(...plan.why)}</span>
     </div>}
-    {onWarmup && !entry.sets.some(s => s.wu) && <div className="dim small" style={{ margin: '2px 2px 6px' }}>{t('Tap a set’s number to mark it a warm-up — it won’t count toward progression.')}</div>}
+    {onFlag && !entry.sets.some(s => s.wu || s.skip) && <div className="dim small" style={{ margin: '2px 2px 6px' }}>{t('Tap a set’s number to mark it a warm-up, or again to just exclude it from progression.')}</div>}
     <div className="card" style={{ marginTop: 10, marginBottom: 0 }}>
       {focus && !showAll ? (() => {
         const curI = entry.sets.findIndex(s => !s.done)
@@ -161,7 +195,7 @@ function ExerciseBlock({ entryIdx, compact, focus, onToggle, onField, onAddSet, 
         return <>
           {doneCount > 0 && <div className="setdone-list">
             {entry.sets.map((x, i) => x.done && (
-              <div key={i} className={'setdone' + (x.wu ? ' wu' : '')}>
+              <div key={i} className={'setdone' + (x.wu ? ' wu' : '') + (x.skip ? ' skip' : '')}>
                 <WuBadge i={i} />
                 <button className="lb-btn" onClick={() => onToggle(i)} title={t('Undo')}>
                   <span className="lb">{setLabel(entry.id, x, entry.target)}</span>
@@ -170,48 +204,62 @@ function ExerciseBlock({ entryIdx, compact, focus, onToggle, onField, onAddSet, 
               </div>
             ))}
           </div>}
-          {s ? <>
-            <div className="setnow-hd">
-              <WuBadge i={curI} cls="setnow-badge" />
-              {s.wu ? t('Warm-up set') : t('Set {0} of {1}', setNum(curI), workCount)}
-            </div>
-            <div className="cfgrow setbig">
-              <div className="stp-w"><span className="stp-l">{col1.hd}</span>{cell(s, curI, col1, 'w')}</div>
-              {col2 && <div className="stp-w"><span className="stp-l">{col2.hd}</span>{cell(s, curI, col2, 'r')}</div>}
-            </div>
-            {col3 && <div className="cfgrow setbig" style={{ marginTop: 10 }}>
-              <div className="stp-w"><span className="stp-l">{col3.hd}</span>{cell(s, curI, col3, 'eff')}</div>
-            </div>}
-            <div style={{ height: 12 }} />
-            {timed
-              ? <Button variant="primary" icon="play" disabled={!!working} onClick={() => onStartTimed(curI)}>{t('Start hold ({0}s)', s.sec || 45)}</Button>
-              : <Button variant="primary" icon="check" onClick={() => onToggle(curI)}>{t('Log set')}</Button>}
-          </> : <div className="setnow-hd" style={{ padding: '10px 0 2px' }}>{t('All sets done.')}</div>}
+          {s ? (() => {
+            const curTimed = effModeOf(s) === 'time'
+            const { c1, c2, c3 } = colsFor(effModeOf(s))
+            return <>
+              <div className="setnow-hd">
+                <WuBadge i={curI} cls="setnow-badge" />
+                {s.wu ? t('Warm-up set') : s.skip ? t('Excluded set {0}', setNum(curI)) : t('Set {0} of {1}', setNum(curI), workCount)}
+                {onSetModeChange && <SetModeBtn i={curI} cls="setnow-mode" />}
+              </div>
+              <div className="cfgrow setbig">
+                <div className="stp-w"><span className="stp-l">{c1.hd}</span>{cell(s, curI, c1, 'w')}</div>
+                {c2 && <div className="stp-w"><span className="stp-l">{c2.hd}</span>{cell(s, curI, c2, 'r')}</div>}
+              </div>
+              {c3 && <div className="cfgrow setbig" style={{ marginTop: 10 }}>
+                <div className="stp-w"><span className="stp-l">{c3.hd}</span>{cell(s, curI, c3, 'eff')}</div>
+              </div>}
+              <div style={{ height: 12 }} />
+              {curTimed
+                ? <Button variant="primary" icon="play" disabled={!!working} onClick={() => onStartTimed(curI)}>{t('Start hold ({0}s)', s.sec || 45)}</Button>
+                : <Button variant="primary" icon="check" onClick={() => onToggle(curI)}>{t('Log set')}</Button>}
+            </>
+          })() : <div className="setnow-hd" style={{ padding: '10px 0 2px' }}>{t('All sets done.')}</div>}
           <div style={{ height: 10 }} />
           <div className="row" style={{ flexWrap: 'wrap', rowGap: 8 }}>
-            {!hideSetButtons && <Button size="sm" icon="minus" disabled={removeDisabled != null ? removeDisabled : entry.sets.length <= 1} title={sharedSet ? t('Removes a set from every exercise in this superset') : undefined} onClick={onRemoveSet}>{t('Remove set')}</Button>}
+            {!hideSetButtons && <Button size="sm" icon="minus" disabled={entry.sets.length <= 1} onClick={onRemoveSet}>{t('Remove set')}</Button>}
             {!hideSetButtons && <Button size="sm" icon="plus" title={sharedSet ? t('Adds a set to every exercise in this superset') : undefined} onClick={onAddSet}>{t('Add set')}</Button>}
             {!hideSetButtons && onAddWarmup && <Button size="sm" variant="ghost" icon="flame" title={sharedSet ? t('Adds a warm-up set to every exercise in this superset — next up') : t('Slots in right before your next set — doesn’t count toward progression')} onClick={onAddWarmup}>{t('Warm-up')}</Button>}
             <Button size="sm" variant="ghost" className="dim" style={{ marginLeft: 'auto' }} onClick={() => setShowAll(true)}>{t('All sets')}</Button>
           </div>
         </>
       })() : <>
-        {/* the header carries the same eff3 sizing as the rows, or the labels drift off their columns */}
-        <div className={'sethead' + (col3 ? ' eff3' : '')}><span className="n-sp" /><span className="w-sp">{col1.hd}</span>{col2 && <span className="r-sp">{col2.hd}</span>}{col3 && <span className="eff-sp">{col3.hd}</span>}{timed && <span className="ck-sp" />}<span className="ck-sp" /></div>
-        {entry.sets.map((s, i) => <div key={i} className={'setrow' + (s.done ? ' done' : '') + (s.wu ? ' wu' : '') + (col3 ? ' eff3' : '')}>
-          <WuBadge i={i} />
-          {cell(s, i, col1, 'w')}
-          {col2 && cell(s, i, col2, 'r')}
-          {col3 && cell(s, i, col3, 'eff')}
-          {/* A timed set is started, not typed: the timer counts the hold down and checks the
-              set off itself. The checkbox stays for anyone who timed it on their own watch. */}
-          {timed && <button className="setgo" aria-label={t('Start set')} disabled={s.done || !!working}
-            onClick={() => onStartTimed(i)}><Icon name="play" /></button>}
-          <Check checked={s.done} onChange={() => onToggle(i)} />
-        </div>)}
+        {/* the header carries the same eff3 sizing as the rows, or the labels drift off their columns.
+            Reserves the start-set column whenever any row is timed, not just when the exercise
+            defaults to it — an overridden row still needs somewhere to put its play button. */}
+        {(() => { const anyTimed = !cardio && entry.sets.some(s => effModeOf(s) === 'time'); return (
+          <div className={'sethead' + (col3 ? ' eff3' : '')}><span className="n-sp" />{onSetModeChange && !cardio && <span className="mode-sp" />}<span className="w-sp">{col1.hd}</span>{col2 && <span className="r-sp">{col2.hd}</span>}{col3 && <span className="eff-sp">{col3.hd}</span>}{anyTimed && <span className="ck-sp" />}<span className="ck-sp" /></div>
+        ) })()}
+        {entry.sets.map((s, i) => {
+          const rowTimed = effModeOf(s) === 'time'
+          const { c1, c2, c3 } = colsFor(effModeOf(s))
+          return <div key={i} className={'setrow' + (s.done ? ' done' : '') + (s.wu ? ' wu' : '') + (s.skip ? ' skip' : '') + (c3 ? ' eff3' : '')}>
+            <WuBadge i={i} />
+            {onSetModeChange && !cardio && <SetModeBtn i={i} />}
+            {cell(s, i, c1, 'w')}
+            {c2 && cell(s, i, c2, 'r')}
+            {c3 && cell(s, i, c3, 'eff')}
+            {/* A timed set is started, not typed: the timer counts the hold down and checks the
+                set off itself. The checkbox stays for anyone who timed it on their own watch. */}
+            {rowTimed && <button className="setgo" aria-label={t('Start set')} disabled={s.done || !!working}
+              onClick={() => onStartTimed(i)}><Icon name="play" /></button>}
+            <Check checked={s.done} onChange={() => onToggle(i)} />
+          </div>
+        })}
         <div style={{ height: 8 }} />
         <div className="row" style={{ flexWrap: 'wrap', rowGap: 8 }}>
-          {!hideSetButtons && <Button size="sm" icon="minus" disabled={removeDisabled != null ? removeDisabled : entry.sets.length <= 1} title={sharedSet ? t('Removes a set from every exercise in this superset') : undefined} onClick={onRemoveSet}>{t('Remove set')}</Button>}
+          {!hideSetButtons && <Button size="sm" icon="minus" disabled={entry.sets.length <= 1} onClick={onRemoveSet}>{t('Remove set')}</Button>}
           {!hideSetButtons && <Button size="sm" icon="plus" title={sharedSet ? t('Adds a set to every exercise in this superset') : undefined} onClick={onAddSet}>{t('Add set')}</Button>}
           {!hideSetButtons && onAddWarmup && <Button size="sm" variant="ghost" icon="flame" title={sharedSet ? t('Adds a warm-up set to every exercise in this superset — next up') : t('Slots in right before your next set — doesn’t count toward progression')} onClick={onAddWarmup}>{t('Warm-up')}</Button>}
           {focus && <Button size="sm" variant="ghost" className="dim" style={{ marginLeft: 'auto' }} onClick={() => setShowAll(false)}>{t('Current set')}</Button>}
@@ -255,25 +303,69 @@ function ActiveWorkout() {
     if (v == null) delete e.sets[i][field]; else e.sets[i][field] = v
   })
   const modeAt = idx => modeOf({ ...(A.entries[idx].target || {}), id: A.entries[idx].id })
+  // A new set continues in whatever mode the one before it ended up in — the entry's own
+  // default, unless that last set carries its own override (s.mode, from flipping just that
+  // one row — see changeSetMode). That is the "going forward" half of a mid-workout switch:
+  // flip a set to time and "Add set" keeps adding timed sets, no need to flip each one by hand.
   const pushSet = e => {
     const l = e.sets[e.sets.length - 1]
-    const m = modeOf({ ...(e.target || {}), id: e.id })
+    const entryMode = modeOf({ ...(e.target || {}), id: e.id })
+    const m = (l && l.mode) || entryMode
+    const ovr = l && l.mode && l.mode !== entryMode ? { mode: l.mode } : {}
     if (m === 'cardio') e.sets.push({ min: l ? l.min : (e.target.min || 20), speed: l ? l.speed : (e.target.speed || 8), done: false })
-    else if (m === 'time') e.sets.push({ sec: l ? l.sec : (e.target.sec || 45), w: l ? (l.w || 0) : (e.target.weight || 0), done: false })
-    else e.sets.push({ w: l ? l.w : 0, r: l ? l.r : e.target.reps, done: false })
+    else if (m === 'time') e.sets.push({ ...ovr, sec: l ? (l.sec || e.target.sec || 45) : (e.target.sec || 45), w: l ? (l.w || 0) : (e.target.weight || 0), done: false })
+    else e.sets.push({ ...ovr, w: l ? l.w : 0, r: l ? l.r : e.target.reps, done: false })
   }
   const popSet = e => { if (e.sets.length > 1) e.sets.pop() }
   const addSet = idx => mutEntry(idx, pushSet)
   const removeSet = idx => mutEntry(idx, popSet)
-  // In a plain superset, a set added or removed applies to every member at once — they're
-  // meant to move together, and letting one drift to a different set count than the rest
-  // is what circuits already prevent structurally (bumpRound). Not for circuits: their
-  // round buttons are the equivalent control and stay separate.
+  // Flip an exercise between reps and time mid-session — logged-so-far progress doesn't carry
+  // (the fields mean different things), but weight does, same as switching it in the routine
+  // editor. Cardio stays cardio: it's a different shape (duration+speed), not a third mode to
+  // toggle into here. Always just the one entry — never the rest of its superset. The whole
+  // exercise is changing mode, so any one-off per-set overrides (changeSetMode) are cleared
+  // along with it rather than left stranded pointing at what is now the new default anyway.
+  const changeMode = idx => mutEntry(idx, e => {
+    const curMode = modeOf({ ...(e.target || {}), id: e.id })
+    if (curMode === 'cardio') return
+    const next = curMode === 'time' ? 'reps' : 'time'
+    e.target = { ...defaultConfig(e.id, next), ...(e.target || {}), mode: next }
+    e.sets = e.sets.map(s => next === 'time'
+      ? { sec: e.target.sec || 45, w: e.target.weight || 0, done: false, ...(s.wu ? { wu: true } : {}) }
+      : { w: e.target.weight || 0, r: e.target.reps || 10, done: false, ...(s.wu ? { wu: true } : {}) })
+  })
+  // Flip one set, leaving the rest of the exercise alone — a single plank set mixed into an
+  // otherwise reps-based accessory move. Stored as an override only when it actually differs
+  // from the exercise's own mode (`undefined` reads as "follow the exercise", same as every
+  // other mode-absent record in the app), so a set switched back to the exercise's default is
+  // indistinguishable from one that was never touched. The set resets the same way changeMode
+  // resets a whole exercise: reps and hold-time answer different questions, so a logged value
+  // cannot carry across the flip, but the weight does.
+  const changeSetMode = (idx, i) => mutEntry(idx, e => {
+    const entryMode = modeOf({ ...(e.target || {}), id: e.id })
+    if (entryMode === 'cardio') return
+    const s = e.sets[i]
+    const cur = s.mode || entryMode
+    const next = cur === 'time' ? 'reps' : 'time'
+    const ovr = next === entryMode ? {} : { mode: next }
+    e.sets[i] = next === 'time'
+      ? { ...ovr, sec: s.sec || e.target.sec || 45, w: s.w || e.target.weight || 0, done: false, ...(s.wu ? { wu: true } : {}) }
+      : { ...ovr, w: s.w || e.target.weight || 0, r: s.r || e.target.reps || 10, done: false, ...(s.wu ? { wu: true } : {}) }
+  })
+  // Reveals the Added-weight column for a bodyweight exercise mid-session — see the `added`
+  // comment in ExerciseBlock for why this needed its own switch rather than just checking
+  // whether a set already has weight on it.
+  const addWeight = idx => mutEntry(idx, e => { e.weighted = true })
+  // Adding a set in a plain superset still applies to every member (they start in sync);
+  // removing one only trims the exercise you're looking at, since a lifter often wants
+  // fewer sets of just one move without dropping its partners too.
   const addSetUnit = idxs => update(s => { idxs.forEach(i => pushSet(s.active.entries[i])) }, true)
-  const removeSetUnit = idxs => update(s => { idxs.forEach(i => popSet(s.active.entries[i])) }, true)
-  // Flag a row as a warm-up (or clear it) by hand — progression skips warm-ups, so this is
-  // how you keep a light opener out of the stall/deload maths on an ad-hoc day.
-  const markWarmup = (idx, i, v) => mutEntry(idx, e => { if (v) e.sets[i].wu = true; else delete e.sets[i].wu })
+  // Set a row's flag by hand — `null` clears both. `wu` and `skip` are mutually exclusive
+  // (see WuBadge's cycle); clearing the other here keeps that true no matter who calls this.
+  const setFlag = (idx, i, flag) => mutEntry(idx, e => {
+    delete e.sets[i].wu; delete e.sets[i].skip
+    if (flag) e.sets[i][flag] = true
+  })
   // Slot in a fresh warm-up set mid-session — not just relabel one that's already there.
   // Lands right before the next set you owe (not at the end), seeded from that neighbour so
   // it doesn't show up at 0/0 and tagged wu straight away so it never touches progression.
@@ -443,8 +535,8 @@ function ActiveWorkout() {
             })}
           </div>
           <ExerciseBlock key={shown} entryIdx={shown} compact focus={perSet} hideSetButtons={!!circ}
-            removeDisabled={unit.some(i => A.entries[i].sets.length <= 1)} sharedSet={!circ}
-            onToggle={i => toggle(shown, i)} onField={(i, f, v) => setField(shown, i, f, v)} onAddSet={() => addSetUnit(unit)} onRemoveSet={() => removeSetUnit(unit)} onAddWarmup={() => addWarmupUnit(unit)} onStartTimed={i => startTimed(shown, i)} onSwap={() => swapEntry(shown)} onWarmup={(i, v) => markWarmup(shown, i, v)} />
+            sharedSet={!circ}
+            onToggle={i => toggle(shown, i)} onField={(i, f, v) => setField(shown, i, f, v)} onAddSet={() => addSetUnit(unit)} onRemoveSet={() => removeSet(shown)} onAddWarmup={() => addWarmupUnit(unit)} onStartTimed={i => startTimed(shown, i)} onSwap={() => swapEntry(shown)} onFlag={(i, f) => setFlag(shown, i, f)} onModeChange={() => changeMode(shown)} onSetModeChange={i => changeSetMode(shown, i)} onAddWeight={() => addWeight(shown)} />
           {circ && <div className="row" style={{ marginTop: 10 }}>
             <Button size="sm" icon="minus" disabled={circ.rounds <= 1} onClick={() => bumpRound(-1)}>{t('Remove round')}</Button>
             <Button size="sm" icon="plus" onClick={() => bumpRound(1)}>{t('Add round')}</Button>
@@ -452,7 +544,7 @@ function ActiveWorkout() {
           </div>}
         </div>
       })() : (
-        <ExerciseBlock key={cur} entryIdx={cur} focus={perSet} onToggle={i => toggle(cur, i)} onField={(i, f, v) => setField(cur, i, f, v)} onAddSet={() => addSet(cur)} onRemoveSet={() => removeSet(cur)} onAddWarmup={() => addWarmup(cur)} onStartTimed={i => startTimed(cur, i)} onSwap={() => swapEntry(cur)} onWarmup={(i, v) => markWarmup(cur, i, v)} />
+        <ExerciseBlock key={cur} entryIdx={cur} focus={perSet} onToggle={i => toggle(cur, i)} onField={(i, f, v) => setField(cur, i, f, v)} onAddSet={() => addSet(cur)} onRemoveSet={() => removeSet(cur)} onAddWarmup={() => addWarmup(cur)} onStartTimed={i => startTimed(cur, i)} onSwap={() => swapEntry(cur)} onFlag={(i, f) => setFlag(cur, i, f)} onModeChange={() => changeMode(cur)} onSetModeChange={i => changeSetMode(cur, i)} onAddWeight={() => addWeight(cur)} />
       )}
     </> : <div className="empty"><div className="ico"><Icon name="shuffle" /></div>{t('Freestyle workout — add your first exercise.')}</div>}
 

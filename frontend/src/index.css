@@ -186,6 +186,8 @@ body.resuming #app{padding-bottom:calc(150px + var(--sab))}
 }
 .iconbtn:active{background:var(--surface-2);transform:scale(.92)}
 .iconbtn.on-ss{background:var(--acc-soft);color:var(--acc)}
+/* per-set reps/time toggle — the iconbtn circle shrunk to fit inside a set row */
+.iconbtn.sm{width:24px;height:24px;font-size:13px}
 
 h4.sec{
   font-size:13px;font-weight:400;letter-spacing:-.004em;color:var(--label-2);
@@ -558,6 +560,7 @@ h4.sec{
   font-size:11px;color:var(--label-3);font-weight:500;text-transform:uppercase;letter-spacing:.045em;
 }
 .sethead .n-sp{width:24px;flex:none}
+.sethead .mode-sp{width:24px;flex:none}
 .sethead .w-sp{flex:1.4;text-align:center}
 .sethead .r-sp{flex:1;text-align:center}
 .sethead .eff-sp{text-align:center}
@@ -591,12 +594,13 @@ h4.sec{
 .setrow.done{opacity:.45}
 button.n{border:none;font-family:inherit;cursor:pointer;padding:0}
 /* One badge, one rule, everywhere a set shows its number — grid row, done-list, current-set
-   header. A flame (not a number) reads the same "not counted" way in all three; dashed and
-   unfilled so it never gets mistaken for a real accent-filled state. */
-.n.wu{background:transparent !important;border:1px dashed var(--label-3, var(--sep));color:var(--label-3, var(--label-2)) !important}
-.n.wu .icn{font-size:12px}
+   header. An icon (not a number) reads the same "not counted" way in all three, for either
+   reason — warm-up (flame) or excluded (chart-off) — both dashed and unfilled so neither
+   gets mistaken for a real accent-filled state. The icon alone tells the two apart. */
+.n.wu,.n.skip{background:transparent !important;border:1px dashed var(--label-3, var(--sep));color:var(--label-3, var(--label-2)) !important}
+.n.wu .icn,.n.skip .icn{font-size:12px}
 .wu-badge{transition:background var(--fast),border-color var(--fast),color var(--fast)}
-.setrow.wu .stp .num{opacity:.7}
+.setrow.wu .stp .num,.setrow.skip .stp .num{opacity:.7}
 /* why the next target is what it is (issue #17) */
 .progline{
   display:flex;align-items:flex-start;gap:7px;margin:6px 0 2px;
@@ -949,6 +953,7 @@ button.n{border:none;font-family:inherit;cursor:pointer;padding:0}
 .setnow-hd .setnow-badge{width:20px;height:20px;border-radius:50%;background:var(--surface-2);color:var(--label-2);
   display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex:none}
 .setnow-hd .setnow-badge .icn{font-size:11px}
+.setnow-hd .setnow-mode{width:20px;height:20px;font-size:11px;margin-left:auto}
 .setdone-list{display:flex;flex-direction:column;margin-bottom:12px}
 .setdone{
   display:flex;align-items:center;gap:10px;padding:7px 2px;font-size:14px;color:var(--label-2);
