@@ -15,7 +15,7 @@ export default function RestTimer() {
   const timer = useUI(s => s.timer)
   const work = useUI(s => s.work)
   const { addRest, stopRest, finishWorkEarly, stopWork, beginHold } = useUI()
-  const on = work || timer
+  const on = timer && !work
   const loc = useLocation()
   // The bar is fixed above the tab bar and floats over whatever is beneath it — during a
   // rest that was the next set's row. Extra bottom padding lets the page scroll clear.
@@ -23,6 +23,28 @@ export default function RestTimer() {
     document.body.classList.toggle('resting', !!on)
     return () => document.body.classList.remove('resting')
   }, [!!on])
+  // A hold takes the whole screen: you're on the floor in a plank, so the number has to read
+  // from there. Orange while getting into position, accent once the hold is counting.
+  if (work) {
+    const prep = !!work.prep
+    const R = 122, C = 2 * Math.PI * R
+    const frac = prep ? work.prep / 5 : work.left / work.total
+    return (
+      <div id="holdscreen" className={prep ? 'prep' : ''}>
+        <div className="hs-n">{work.label}</div>
+        <div className="hs-ring">
+          <svg viewBox="0 0 270 270"><circle cx="135" cy="135" r={R} className="trk" />
+            <circle cx="135" cy="135" r={R} className="arc" strokeDasharray={C} strokeDashoffset={C * (1 - frac)} /></svg>
+          <div className="hs-num"><b>{prep ? work.prep : clock(work.left)}</b><span>{prep ? t('Get ready') : t('of {0}', clock(work.total))}</span></div>
+        </div>
+        <div className="hs-acts">
+          <Button onClick={stopWork}>{t('Cancel')}</Button>
+          {prep ? <Button variant="primary" icon="play" onClick={beginHold}>{t('Go')}</Button>
+            : <Button variant="primary" icon="check" onClick={finishWorkEarly}>{t('Done')}</Button>}
+        </div>
+      </div>
+    )
+  }
   if (!on) return null
   const pct = (on.left / on.total) * 100
   // The bar itself means "workout in progress" just as much as ResumeBar does, so away from
@@ -30,30 +52,6 @@ export default function RestTimer() {
   const jump = loc.pathname === '/workout' ? undefined : () => nav('/workout')
   const stop = e => e.stopPropagation()
 
-  // The few seconds before a hold starts counting: a plain countdown to get into position.
-  // "Go" skips straight to the hold for anyone already set.
-  if (work && work.prep) return (
-    <div id="timer" className="working prep" onClick={jump} role={jump ? 'button' : undefined}>
-      <div className="t">{work.prep}</div>
-      <div className="grow">
-        <div className="lbl">{t('Get ready')}{work.label ? ' — ' + work.label : ''}</div>
-        <div className="bar"><i style={{ width: (work.prep / 5) * 100 + '%' }} /></div>
-      </div>
-      <span onClick={stop}><Button size="sm" onClick={stopWork}>{t('Cancel')}</Button></span>
-      <span onClick={stop}><Button size="sm" variant="primary" icon="play" onClick={beginHold}>{t('Go')}</Button></span>
-    </div>
-  )
-  if (work) return (
-    <div id="timer" className="working" onClick={jump} role={jump ? 'button' : undefined}>
-      <div className="t">{clock(work.left)}</div>
-      <div className="grow">
-        {work.label && <div className="lbl">{work.label}</div>}
-        <div className="bar"><i style={{ width: pct + '%' }} /></div>
-      </div>
-      <span onClick={stop}><Button size="sm" onClick={stopWork}>{t('Cancel')}</Button></span>
-      <span onClick={stop}><Button size="sm" variant="primary" icon="check" onClick={finishWorkEarly}>{t('Done')}</Button></span>
-    </div>
-  )
   // Three controls plus the clock don't fit one line on a phone — at 360px the bar is left
   // with about 30px and stops saying anything. So the rest variant stacks: clock and bar
   // read at a glance, controls get their own row. −15 and +15 sit together in number-line

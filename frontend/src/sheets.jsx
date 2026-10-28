@@ -47,25 +47,8 @@ export function confirmSheet(opts) {
 }
 
 /* ============================ hold time (timed sets) ============================ */
-// A hold's length picked with one tap, instead of nudging a cramped stepper five seconds at
-// a time from a set row. The stepper stays for an exact odd value.
-const HOLD_PRESETS = [15, 20, 30, 45, 60, 90, 120]
+// A hold reads as "45s" under a minute and "1:30" from there — how people say hold times.
 export const fmtHold = sec => (sec || 0) < 60 ? (sec || 0) + 's' : Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0')
-function HoldTimeSheet({ value, onSave, close }) {
-  const [sec, setSec] = useState(value || 45)
-  const save = v => { onSave(Math.max(1, Math.round(v) || 1)); close() }
-  return <div>
-    <h3 style={{ textAlign: 'center', marginBottom: 14 }}>{t('Hold time')}</h3>
-    <div className="hold-presets">
-      {HOLD_PRESETS.map(p => <button key={p} className={'chip nocap' + (p === sec ? ' on' : '')} onClick={() => save(p)}>{fmtHold(p)}</button>)}
-    </div>
-    <div className="cfgrow setbig" style={{ margin: '16px 0' }}>
-      <Stepper label={t('Seconds')} value={sec} step={5} decimal={false} onChange={setSec} />
-    </div>
-    <button className="btn primary" onClick={() => save(sec)}>{t('Done')}</button>
-  </div>
-}
-export const holdTimeSheet = (value, onSave) => ui().openSheet(close => <HoldTimeSheet value={value} onSave={onSave} close={close} />)
 
 /* ============================ starter plan ============================ */
 export function loadStarterPlan() {
@@ -1232,6 +1215,29 @@ function doFinishWorkout() {
   const st = S()
   const A = st.active
   if (!A) return
+  // Exercises added mid-session that were actually done: offer to keep them in the routine,
+  // once, before the session is filed. Swaps already asked at swap time.
+  const r = st.routines.find(x => x.id === A.routineId)
+  const extra = r && !A.askedAdd ? A.entries.filter(e => e.added && e.sets.some(x => x.done)) : []
+  if (extra.length) {
+    const keep = add => {
+      update(s => {
+        s.active.askedAdd = true
+        const rr = s.routines.find(x => x.id === A.routineId)
+        if (add && rr) { extra.forEach(e => rr.ex.push({ id: e.id, ...(e.target || {}) })); rr.ts = Date.now() }
+      })
+      if (add) toast(t('{0} updated', r.name))
+      doFinishWorkout()
+    }
+    ui().openSheet(close => <div style={{ textAlign: 'center', padding: '4px 0' }}>
+      <h3 style={{ marginBottom: 8 }}>{t('Add to {0}?', r.name)}</h3>
+      <div className="muted capitalize" style={{ marginBottom: 18, lineHeight: 1.5 }}>{extra.map(e => exOr(e.id).n).join(', ')}</div>
+      <Button variant="primary" onClick={() => { close(); keep(true) }}>{t('Add to routine')}</Button>
+      <div style={{ height: 8 }} />
+      <Button onClick={() => { close(); keep(false) }}>{t('Just today')}</Button>
+    </div>, { kind: 'center', locked: true })
+    return
+  }
   const prs = []
   const e1prs = []
   A.entries.forEach(e => {
